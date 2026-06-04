@@ -1,0 +1,13 @@
+# Render deployment blueprint.
+# Render reads this when you create a "Blueprint" from the GitHub repo, or you
+# can just enter the same Build/Start commands manually in the dashboard.
+services:
+  - type: web
+    name: holdem
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9

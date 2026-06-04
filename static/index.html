@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Holdem</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Join screen -->
+  <div id="join-screen" class="overlay">
+    <div class="join-box">
+      <h1>♠ Holdem ♥</h1>
+      <p class="subtitle">웹 멀티플레이 텍사스 홀덤</p>
+      <label>닉네임
+        <input id="name-input" maxlength="16" placeholder="이름" />
+      </label>
+      <label>방 이름
+        <input id="room-input" value="main" maxlength="24" />
+      </label>
+      <button id="join-btn">테이블 입장</button>
+      <p class="hint">같은 방 이름으로 들어오면 같은 테이블에서 같이 칩니다.</p>
+    </div>
+  </div>
+
+  <!-- Game screen -->
+  <div id="game-screen" class="hidden">
+    <header class="topbar">
+      <span id="room-label"></span>
+      <span id="phase-label"></span>
+      <button id="leave-btn" class="small">나가기</button>
+    </header>
+
+    <div class="table-wrap">
+      <div class="table">
+        <div class="board">
+          <div id="community" class="community"></div>
+          <div id="pot" class="pot"></div>
+          <div id="status" class="status"></div>
+        </div>
+        <div id="seats"></div>
+      </div>
+    </div>
+
+    <div id="action-bar" class="action-bar hidden">
+      <button id="fold-btn" class="act fold">폴드</button>
+      <button id="check-btn" class="act check">체크</button>
+      <button id="call-btn" class="act call">콜</button>
+      <div class="raise-group">
+        <input id="raise-slider" type="range" />
+        <input id="raise-amount" type="number" class="raise-input" />
+        <button id="raise-btn" class="act raise">레이즈</button>
+      </div>
+    </div>
+
+    <div id="waiting-bar" class="waiting-bar">
+      <button id="deal-btn">딜 시작</button>
+      <span class="waiting-hint">2명 이상 모이면 딜을 시작하세요.</span>
+    </div>
+
+    <div id="log" class="log"></div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

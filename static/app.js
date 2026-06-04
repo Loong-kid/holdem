@@ -1,0 +1,228 @@
+// ---- Holdem web client ----------------------------------------------------
+// Talks to the server over a single WebSocket. The flow is always:
+//   1. user clicks something -> we send a small JSON message to the server
+//   2. server runs the rules and pushes back the full game state
+//   3. render() redraws the whole table from that state
+// We never compute game rules here; the browser only draws what it is told.
+
+let ws = null;
+let myId = null;
+let state = null;     // last public state
+let priv = null;      // last private state (my hole cards + legal moves)
+
+const $ = (id) => document.getElementById(id);
+
+// ---- Join -----------------------------------------------------------------
+$("join-btn").onclick = () => {
+  const name = $("name-input").value.trim() || "Player";
+  const room = $("room-input").value.trim() || "main";
+  connect(name, room);
+};
+
+function connect(name, room) {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => ws.send(JSON.stringify({ type: "join", room, name }));
+
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "joined") {
+      myId = msg.id;
+      $("room-label").textContent = "방: " + msg.room;
+      $("join-screen").classList.add("hidden");
+      $("game-screen").classList.remove("hidden");
+    } else if (msg.type === "state") {
+      state = msg.public;
+      priv = msg.private;
+      render();
+    } else if (msg.type === "error") {
+      flashStatus(msg.message);
+    }
+  };
+
+  ws.onclose = () => flashStatus("서버 연결이 끊어졌습니다.");
+}
+
+$("leave-btn").onclick = () => location.reload();
+$("deal-btn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
+
+// ---- Actions --------------------------------------------------------------
+$("fold-btn").onclick = () => sendAction("fold");
+$("check-btn").onclick = () => sendAction("check");
+$("call-btn").onclick = () => sendAction("call");
+$("raise-btn").onclick = () =>
+  sendAction("raise", parseInt($("raise-amount").value, 10));
+
+function sendAction(action, amount = 0) {
+  ws.send(JSON.stringify({ type: "action", action, amount }));
+}
+
+$("raise-slider").oninput = () => ($("raise-amount").value = $("raise-slider").value);
+$("raise-amount").oninput = () => ($("raise-slider").value = $("raise-amount").value);
+
+// ---- Card rendering -------------------------------------------------------
+const SUIT = { s: "♠", h: "♥", d: "♦", c: "♣" };
+const RED = new Set(["h", "d"]);
+
+function cardEl(card, small = false) {
+  const el = document.createElement("div");
+  el.className = "card" + (small ? " small" : "");
+  if (!card) { el.classList.add("placeholder"); return el; }
+  if (card === "back") { el.classList.add("back"); return el; }
+  const rank = card[0] === "T" ? "10" : card[0];
+  const suit = card[1];
+  if (RED.has(suit)) el.classList.add("red");
+  el.innerHTML =
+    `<span class="corner-top">${rank}${SUIT[suit]}</span>` +
+    `<span class="corner-bottom">${rank}${SUIT[suit]}</span>`;
+  return el;
+}
+
+// ---- Main render ----------------------------------------------------------
+function render() {
+  if (!state) return;
+  $("phase-label").textContent = state.phase;
+
+  // Community cards (pad to 5 placeholders so the table feels stable).
+  const comm = $("community");
+  comm.innerHTML = "";
+  for (let i = 0; i < 5; i++) {
+    comm.appendChild(cardEl(state.community[i] || null));
+  }
+
+  $("pot").textContent = state.pot > 0 ? `팟: ${state.pot}` : "";
+
+  // Winner banner at showdown / uncontested win.
+  if (state.results && state.results.length && !state.hand_in_progress) {
+    const txt = state.results
+      .map((r) => `${r.name} +${r.amount}${r.hand ? " (" + r.hand + ")" : ""}`)
+      .join(", ");
+    $("status").textContent = "🏆 " + txt;
+  } else if (!state.hand_in_progress) {
+    $("status").textContent = "딜을 기다리는 중...";
+  } else {
+    const actor = state.players.find((p) => p.id === state.to_act);
+    $("status").textContent = actor ? `${actor.name} 차례` : "";
+  }
+
+  renderSeats();
+  renderControls();
+  renderLog();
+}
+
+function renderSeats() {
+  const seats = $("seats");
+  seats.innerHTML = "";
+
+  // Rotate the player list so that *I* always sit at the bottom.
+  const players = state.players;
+  const n = players.length;
+  let myIndex = players.findIndex((p) => p.id === myId);
+  if (myIndex < 0) myIndex = 0;
+  const ordered = [];
+  for (let k = 0; k < n; k++) ordered.push(players[(myIndex + k) % n]);
+
+  ordered.forEach((p, i) => {
+    // Place seat i around an ellipse; i=0 is bottom-center (me).
+    const angle = (i / n) * 2 * Math.PI;
+    const x = 50 + 56 * Math.sin(angle);
+    const y = 50 + 50 * Math.cos(angle);
+
+    const seat = document.createElement("div");
+    seat.className = "seat";
+    seat.style.left = x + "%";
+    seat.style.top = y + "%";
+    if (p.id === myId) seat.classList.add("me");
+    if (p.id === state.to_act) seat.classList.add("active");
+    if (p.folded) seat.classList.add("folded");
+
+    // Cards: my own (or revealed at showdown) face up, others face down.
+    const cardsWrap = document.createElement("div");
+    cardsWrap.className = "player-cards";
+    if (p.has_cards) {
+      let hole = null;
+      if (p.id === myId && priv && priv.hole && priv.hole.length) hole = priv.hole;
+      else if (p.hole) hole = p.hole; // revealed at showdown
+      if (hole) hole.forEach((c) => cardsWrap.appendChild(cardEl(c, true)));
+      else { cardsWrap.appendChild(cardEl("back", true)); cardsWrap.appendChild(cardEl("back", true)); }
+    }
+    seat.appendChild(cardsWrap);
+
+    const plate = document.createElement("div");
+    plate.className = "nameplate";
+    const isButton = p.id === state.button;
+    const won = (state.results || []).find((r) => r.id === p.id && !state.hand_in_progress);
+    plate.innerHTML =
+      `<div class="pname">${escapeHtml(p.name)}${isButton ? '<span class="dealer-btn">D</span>' : ""}</div>` +
+      `<div class="pchips">${p.chips}</div>` +
+      (won ? `<div class="winner-badge">WIN +${won.amount}</div>` : "");
+    seat.appendChild(plate);
+
+    const bet = document.createElement("div");
+    bet.className = "pbet";
+    bet.textContent = p.bet > 0 ? "🪙 " + p.bet : "";
+    seat.appendChild(bet);
+
+    const act = document.createElement("div");
+    act.className = "paction";
+    act.textContent = p.all_in ? "ALL-IN" : (p.folded ? "fold" : "");
+    seat.appendChild(act);
+
+    seats.appendChild(seat);
+  });
+}
+
+function renderControls() {
+  const actionBar = $("action-bar");
+  const waitingBar = $("waiting-bar");
+
+  // Show the deal button only between hands.
+  waitingBar.classList.toggle("hidden", state.hand_in_progress);
+
+  const myTurn = priv && priv.your_turn && priv.legal;
+  actionBar.classList.toggle("hidden", !myTurn);
+  if (!myTurn) return;
+
+  const L = priv.legal;
+  $("fold-btn").disabled = !L.can_fold;
+  $("check-btn").style.display = L.can_check ? "" : "none";
+  $("call-btn").style.display = L.can_call ? "" : "none";
+  $("call-btn").textContent = `콜 ${L.call_amount}`;
+
+  const rg = document.querySelector(".raise-group");
+  if (L.can_raise) {
+    rg.style.display = "flex";
+    const s = $("raise-slider");
+    s.min = L.min_raise_to;
+    s.max = L.max_raise_to;
+    s.value = L.min_raise_to;
+    $("raise-amount").min = L.min_raise_to;
+    $("raise-amount").max = L.max_raise_to;
+    $("raise-amount").value = L.min_raise_to;
+    $("raise-btn").textContent =
+      L.max_raise_to === L.min_raise_to ? "올인" : "레이즈";
+  } else {
+    rg.style.display = "none";
+  }
+}
+
+function renderLog() {
+  const log = $("log");
+  log.innerHTML = "";
+  (state.log || []).forEach((line) => {
+    const d = document.createElement("div");
+    d.textContent = line;
+    log.appendChild(d);
+  });
+  log.scrollTop = log.scrollHeight;
+}
+
+// ---- Small helpers --------------------------------------------------------
+function flashStatus(text) {
+  $("status").textContent = text;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
