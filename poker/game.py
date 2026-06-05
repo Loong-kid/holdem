@@ -79,13 +79,48 @@ class Game:
     def is_full(self) -> bool:
         return len(self.players) >= self.MAX_PLAYERS
 
-    def add_player(self, pid: str, name: str) -> Player | None:
+    def add_player(self, pid: str, name: str, chips: int | None = None) -> Player | None:
         if self.is_full():
             return None
-        p = Player(pid, name, self.starting_chips)
+        start = self.starting_chips if chips is None else chips
+        p = Player(pid, name, start)
         self.players.append(p)
         self.log.append(f"{name} joined the table.")
         return p
+
+    # ---- table settings (host controlled) ------------------------------------
+
+    def set_blinds(self, sb: int, bb: int):
+        """Change blinds. Takes effect on the next hand, not mid-hand."""
+        self.sb = max(0, int(sb))
+        self.bb = max(1, int(bb))
+        if not self.hand_in_progress:
+            self.min_raise = self.bb
+        self.log.append(f"Blinds set to {self.sb}/{self.bb} (next hand).")
+
+    def set_default_stack(self, amount: int):
+        """Default buy-in for players who join from now on."""
+        self.starting_chips = max(1, int(amount))
+        self.log.append(f"Default buy-in set to {self.starting_chips}.")
+
+    def adjust_stack(self, pid: str, delta: int) -> tuple[int, str | None]:
+        """Add (delta>0) or remove (delta<0) chips from a player's stack.
+
+        Only allowed between hands so it never corrupts a live pot. Returns the
+        actually-applied delta (clamped) and an error string if rejected.
+        """
+        p = self._player(pid)
+        if not p:
+            return 0, "Player not found."
+        if self.hand_in_progress:
+            return 0, "핸드 진행 중에는 스택을 조절할 수 없습니다 (핸드 사이에만 가능)."
+        delta = int(delta)
+        if delta < 0:
+            delta = max(delta, -p.chips)   # cannot remove more than they hold
+        p.chips += delta
+        verb = "added to" if delta >= 0 else "removed from"
+        self.log.append(f"{abs(delta)} chips {verb} {p.name}.")
+        return delta, None
 
     def remove_player(self, pid: str):
         p = self._player(pid)
@@ -429,6 +464,7 @@ class Game:
             "min_raise": self.min_raise,
             "big_blind": self.bb,
             "small_blind": self.sb,
+            "starting_chips": self.starting_chips,
             "button": (self.players[self.button].id
                        if self.players and self.button < len(self.players) else None),
             "to_act": to_act_id,

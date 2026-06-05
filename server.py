@@ -38,11 +38,39 @@ class Room:
         self.connections: dict[WebSocket, str] = {}
         self.host_id: str | None = None   # first player to join owns the "Deal" button
         self.lock = asyncio.Lock()   # serialize actions so the engine sees one at a time
+        # Cash-game ledger keyed by nickname. Survives a player leaving so the
+        # leaderboard keeps their record. Tracks money in/out of the table.
+        #   buyin   = chips bought in with on first sit
+        #   added   = chips topped up later (host action)
+        #   removed = chips taken off the table (host action)
+        #   last_stack = most recent chip count (live, or frozen when they left)
+        #   active  = is someone currently connected under this name
+        self.ledger: dict[str, dict] = {}
+
+    def ledger_entry(self, name: str) -> dict:
+        return self.ledger.setdefault(
+            name, {"buyin": 0, "added": 0, "removed": 0,
+                   "last_stack": 0, "active": False})
+
+    def ledger_view(self) -> list[dict]:
+        """Snapshot the ledger for the wire, refreshing live stacks and net."""
+        live = {p.name: p.chips for p in self.game.players}
+        rows = []
+        for name, e in self.ledger.items():
+            if name in live:
+                e["last_stack"] = live[name]
+            net = e["last_stack"] + e["removed"] - e["buyin"] - e["added"]
+            rows.append({"name": name, "buyin": e["buyin"], "added": e["added"],
+                         "removed": e["removed"], "stack": e["last_stack"],
+                         "net": net, "active": e["active"]})
+        rows.sort(key=lambda r: r["net"], reverse=True)
+        return rows
 
     async def broadcast(self):
         """Send the latest state to every connected player (public + their private)."""
         public = self.game.public_state()
         public["host"] = self.host_id
+        public["ledger"] = self.ledger_view()
         dead = []
         for ws, pid in self.connections.items():
             payload = {
@@ -91,16 +119,30 @@ async def websocket_endpoint(ws: WebSocket):
                 name = (msg.get("name") or "Player").strip()[:16] or "Player"
                 room = manager.get(room_id)
                 candidate = uuid.uuid4().hex[:8]
+                error = None
                 async with room.lock:
-                    player = room.game.add_player(candidate, name)
-                    if player is not None:
+                    entry = room.ledger.get(name)
+                    if entry and entry["active"]:
+                        error = "이미 사용 중인 닉네임입니다. 다른 이름을 써주세요."
+                    elif room.game.is_full():
+                        error = "테이블이 가득 찼습니다 (최대 9명)."
+                    elif entry is not None:
+                        # Same name returning -> restore their previous stack.
+                        player = room.game.add_player(candidate, name, entry["last_stack"])
+                        entry["active"] = True
+                    else:
+                        # Brand new player -> default buy-in.
+                        start = room.game.starting_chips
+                        player = room.game.add_player(candidate, name, start)
+                        room.ledger[name] = {"buyin": start, "added": 0, "removed": 0,
+                                             "last_stack": start, "active": True}
+                    if error is None:
                         pid = candidate
                         room.connections[ws] = pid
                         if room.host_id is None:        # first arrival becomes host
                             room.host_id = pid
-                if player is None:
-                    await ws.send_json({"type": "error",
-                                        "message": "테이블이 가득 찼습니다 (최대 9명)."})
+                if error is not None:
+                    await ws.send_json({"type": "error", "message": error})
                 else:
                     await ws.send_json({"type": "joined", "id": pid, "room": room_id})
                     await room.broadcast()
@@ -123,6 +165,41 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
 
+            elif mtype == "set_blinds" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.game.set_blinds(msg.get("sb"), msg.get("bb"))
+                    await room.broadcast()
+
+            elif mtype == "set_default_stack" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.game.set_default_stack(msg.get("amount"))
+                    await room.broadcast()
+
+            elif mtype == "adjust_stack" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 스택을 조절할 수 있습니다."})
+                else:
+                    target = msg.get("target")
+                    delta = int(msg.get("delta") or 0)
+                    async with room.lock:
+                        p = room.game._player(target)
+                        applied, err = room.game.adjust_stack(target, delta)
+                        if not err and p:
+                            entry = room.ledger_entry(p.name)
+                            if applied >= 0:
+                                entry["added"] += applied
+                            else:
+                                entry["removed"] += -applied
+                    if err:
+                        await ws.send_json({"type": "error", "message": err})
+                    await room.broadcast()
+
             elif mtype == "ping":
                 await ws.send_json({"type": "pong"})
 
@@ -132,6 +209,12 @@ async def websocket_endpoint(ws: WebSocket):
         if room and ws in room.connections:
             leaving = room.connections.pop(ws)
             async with room.lock:
+                gone = room.game._player(leaving)
+                if gone and gone.name in room.ledger:
+                    # Freeze their ledger row; they can reclaim the stack by
+                    # rejoining under the same nickname.
+                    room.ledger[gone.name]["last_stack"] = gone.chips
+                    room.ledger[gone.name]["active"] = False
                 room.game.remove_player(leaving)
                 if room.host_id == leaving:   # host left -> pass the crown to anyone left
                     room.host_id = room.game.players[0].id if room.game.players else None

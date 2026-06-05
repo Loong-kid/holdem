@@ -47,6 +47,34 @@ function connect(name, room) {
 $("leave-btn").onclick = () => location.reload();
 $("deal-btn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
 
+// ---- Modals (settings + leaderboard) --------------------------------------
+function openModal(id) { $(id).classList.remove("hidden"); }
+function closeModal(id) { $(id).classList.add("hidden"); }
+$("settings-btn").onclick = () => { renderSettings(); openModal("settings-modal"); };
+$("board-btn").onclick = () => { renderBoard(); openModal("board-modal"); };
+document.querySelectorAll(".modal-close").forEach(
+  (b) => (b.onclick = () => closeModal(b.dataset.close)));
+// Click outside the box closes the modal.
+document.querySelectorAll(".modal").forEach((m) => {
+  m.onclick = (e) => { if (e.target === m) m.classList.add("hidden"); };
+});
+
+$("apply-blinds").onclick = () =>
+  ws.send(JSON.stringify({
+    type: "set_blinds",
+    sb: parseInt($("sb-input").value, 10),
+    bb: parseInt($("bb-input").value, 10),
+  }));
+$("apply-default-stack").onclick = () =>
+  ws.send(JSON.stringify({
+    type: "set_default_stack",
+    amount: parseInt($("default-stack-input").value, 10),
+  }));
+
+function adjustStack(targetId, delta) {
+  ws.send(JSON.stringify({ type: "adjust_stack", target: targetId, delta }));
+}
+
 // ---- Actions --------------------------------------------------------------
 $("fold-btn").onclick = () => sendAction("fold");
 $("check-btn").onclick = () => sendAction("check");
@@ -83,6 +111,14 @@ function cardEl(card, small = false) {
 function render() {
   if (!state) return;
   $("phase-label").textContent = state.phase;
+  $("blinds-label").textContent = `블라인드 ${state.small_blind}/${state.big_blind}`;
+
+  // Show/hide host-only controls based on whether I'm the host.
+  document.body.classList.toggle("not-host", state.host !== myId);
+
+  // Keep open modals in sync with fresh state.
+  if (!$("settings-modal").classList.contains("hidden")) renderSettings();
+  if (!$("board-modal").classList.contains("hidden")) renderBoard();
 
   // Community cards (pad to 5 placeholders so the table feels stable).
   const comm = $("community");
@@ -151,6 +187,10 @@ function renderSeats() {
 
     const plate = document.createElement("div");
     plate.className = "nameplate";
+    // Host can click a seat to jump straight to that player's stack settings.
+    if (state.host === myId) {
+      plate.onclick = () => { renderSettings(); openModal("settings-modal"); };
+    }
     const isButton = p.id === state.button;
     const isHost = p.id === state.host;
     const won = (state.results || []).find((r) => r.id === p.id && !state.hand_in_progress);
@@ -210,6 +250,77 @@ function renderControls() {
       L.max_raise_to === L.min_raise_to ? "올인" : "레이즈";
   } else {
     rg.style.display = "none";
+  }
+}
+
+function renderSettings() {
+  if (!state) return;
+  const isHost = state.host === myId;
+  $("settings-note").textContent = isHost
+    ? "방장으로서 아래 설정을 변경할 수 있습니다."
+    : "방장만 설정을 변경할 수 있습니다 (보기 전용).";
+
+  // Fill inputs, but never clobber a field the host is actively typing in.
+  const set = (id, val) => { if (document.activeElement.id !== id) $(id).value = val; };
+  set("sb-input", state.small_blind);
+  set("bb-input", state.big_blind);
+  set("default-stack-input", state.starting_chips);
+  ["apply-blinds", "apply-default-stack"].forEach((id) => ($(id).disabled = !isHost));
+  $("sb-input").disabled = !isHost;
+  $("bb-input").disabled = !isHost;
+  $("default-stack-input").disabled = !isHost;
+
+  // Per-player stack adjust rows.
+  const list = $("adjust-list");
+  list.innerHTML = "";
+  if (!isHost) {
+    list.innerHTML = '<p class="muted">방장만 스택을 조절할 수 있습니다.</p>';
+    return;
+  }
+  if (state.hand_in_progress) {
+    list.innerHTML = '<p class="muted">핸드가 끝난 뒤(딜 사이)에 조절할 수 있습니다.</p>';
+  }
+  state.players.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "adjust-row";
+    const amt = document.createElement("input");
+    amt.type = "number"; amt.min = "1"; amt.value = "100";
+    amt.disabled = state.hand_in_progress;
+    const add = document.createElement("button");
+    add.className = "arow-add"; add.textContent = "+추가";
+    add.disabled = state.hand_in_progress;
+    add.onclick = () => adjustStack(p.id, Math.abs(parseInt(amt.value, 10) || 0));
+    const rem = document.createElement("button");
+    rem.className = "arow-remove"; rem.textContent = "−빼기";
+    rem.disabled = state.hand_in_progress;
+    rem.onclick = () => adjustStack(p.id, -Math.abs(parseInt(amt.value, 10) || 0));
+    const nm = document.createElement("span");
+    nm.className = "arow-name"; nm.textContent = p.name;
+    const ch = document.createElement("span");
+    ch.className = "arow-chips"; ch.textContent = p.chips;
+    row.append(nm, ch, amt, add, rem);
+    list.appendChild(row);
+  });
+}
+
+function renderBoard() {
+  if (!state) return;
+  const body = $("board-body");
+  body.innerHTML = "";
+  (state.ledger || []).forEach((r) => {
+    const tr = document.createElement("tr");
+    if (!r.active) tr.className = "row-inactive";
+    const netClass = r.net > 0 ? "net-pos" : r.net < 0 ? "net-neg" : "";
+    const sign = r.net > 0 ? "+" : "";
+    tr.innerHTML =
+      `<td>${escapeHtml(r.name)}${r.active ? "" : " (떠남)"}</td>` +
+      `<td>${r.buyin}</td><td>${r.added}</td><td>${r.removed}</td>` +
+      `<td>${r.stack}</td>` +
+      `<td class="${netClass}">${sign}${r.net}</td>`;
+    body.appendChild(tr);
+  });
+  if (!body.children.length) {
+    body.innerHTML = '<tr><td colspan="6" class="muted">아직 기록이 없습니다.</td></tr>';
   }
 }
 

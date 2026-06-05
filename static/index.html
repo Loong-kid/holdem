@@ -27,7 +27,11 @@
   <div id="game-screen" class="hidden">
     <header class="topbar">
       <span id="room-label"></span>
+      <span id="blinds-label"></span>
       <span id="phase-label"></span>
+      <span class="topbar-spacer"></span>
+      <button id="board-btn" class="small">🏆 기록</button>
+      <button id="settings-btn" class="small">⚙ 설정</button>
       <button id="leave-btn" class="small">나가기</button>
     </header>
 
@@ -59,6 +63,56 @@
     </div>
 
     <div id="log" class="log"></div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>⚙ 테이블 설정</h2>
+        <button class="modal-close" data-close="settings-modal">✕</button>
+      </div>
+      <p id="settings-note" class="modal-note"></p>
+
+      <section class="settings-section">
+        <h3>블라인드 <span class="muted">(다음 핸드부터 적용)</span></h3>
+        <div class="field-row">
+          <label>SB <input id="sb-input" type="number" min="0" /></label>
+          <label>BB <input id="bb-input" type="number" min="1" /></label>
+          <button id="apply-blinds" class="mini-btn host-only">적용</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>기본 바이인 <span class="muted">(새로 들어오는 사람 시작 스택)</span></h3>
+        <div class="field-row">
+          <label><input id="default-stack-input" type="number" min="1" /></label>
+          <button id="apply-default-stack" class="mini-btn host-only">적용</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>플레이어 스택 조절 <span class="muted">(핸드 사이에만)</span></h3>
+        <div id="adjust-list" class="adjust-list"></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Leaderboard modal -->
+  <div id="board-modal" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-head">
+        <h2>🏆 기록 (Leaderboard)</h2>
+        <button class="modal-close" data-close="board-modal">✕</button>
+      </div>
+      <table class="board-table">
+        <thead>
+          <tr><th>닉네임</th><th>바이인</th><th>추가</th><th>뺀 스택</th><th>현재</th><th>손익</th></tr>
+        </thead>
+        <tbody id="board-body"></tbody>
+      </table>
+      <p class="modal-note">손익 = 현재 스택 + 뺀 스택 − (바이인 + 추가). 자리를 떠도 기록은 남고, 같은 닉네임으로 다시 들어오면 스택이 복원됩니다.</p>
+    </div>
   </div>
 
   <script src="/static/app.js"></script>
