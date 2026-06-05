@@ -30,6 +30,7 @@
       <span id="blinds-label"></span>
       <span id="phase-label"></span>
       <span class="topbar-spacer"></span>
+      <button id="game-toggle-btn" class="small host-only">▶ 게임 시작</button>
       <button id="board-btn" class="small">🏆 기록</button>
       <button id="settings-btn" class="small">⚙ 설정</button>
       <button id="leave-btn" class="small">나가기</button>
@@ -41,6 +42,7 @@
           <div id="community" class="community"></div>
           <div id="pot" class="pot"></div>
           <div id="status" class="status"></div>
+          <div id="turn-timer" class="turn-timer"></div>
         </div>
         <div id="seats"></div>
       </div>
@@ -88,6 +90,14 @@
         <div class="field-row">
           <label><input id="default-stack-input" type="number" min="1" /></label>
           <button id="apply-default-stack" class="mini-btn host-only">적용</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>액션 제한시간 <span class="muted">(20~60초, 기본 30)</span></h3>
+        <div class="field-row">
+          <label><input id="timeout-input" type="number" min="20" max="60" /> 초</label>
+          <button id="apply-timeout" class="mini-btn host-only">적용</button>
         </div>
       </section>
 

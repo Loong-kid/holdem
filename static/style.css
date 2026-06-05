@@ -111,6 +111,8 @@ button.small {
   font-weight: 700;
 }
 .status { margin-top: 4px; font-size: 13px; color: #d8e8de; min-height: 18px; }
+.turn-timer { margin-top: 2px; font-size: 14px; font-weight: 700; color: #ffe9a8; min-height: 18px; }
+.turn-timer.urgent { color: #ff6a6a; }
 
 /* ---- Cards ---- */
 .card {

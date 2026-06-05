@@ -9,8 +9,20 @@ let ws = null;
 let myId = null;
 let state = null;     // last public state
 let priv = null;      // last private state (my hole cards + legal moves)
+let actorDeadline = null;  // local wall-clock (ms) when the current actor's time runs out
 
 const $ = (id) => document.getElementById(id);
+
+// Smooth client-side countdown. The server only tells us "seconds left" on each
+// state update; we tick locally so the number counts down every quarter second.
+setInterval(() => {
+  const el = $("turn-timer");
+  if (!el) return;
+  if (actorDeadline == null) { el.textContent = ""; el.classList.remove("urgent"); return; }
+  const left = Math.max(0, Math.ceil((actorDeadline - Date.now()) / 1000));
+  el.textContent = "⏱ " + left + "초";
+  el.classList.toggle("urgent", left <= 5);
+}, 250);
 
 // ---- Join -----------------------------------------------------------------
 $("join-btn").onclick = () => {
@@ -70,6 +82,15 @@ $("apply-default-stack").onclick = () =>
     type: "set_default_stack",
     amount: parseInt($("default-stack-input").value, 10),
   }));
+$("apply-timeout").onclick = () =>
+  ws.send(JSON.stringify({
+    type: "set_timeout",
+    amount: parseInt($("timeout-input").value, 10),
+  }));
+
+// Start/pause continuous dealing (host only). Handler is wired in render().
+$("game-toggle-btn").onclick = () =>
+  ws.send(JSON.stringify({ type: state && state.auto_running ? "pause" : "start" }));
 
 function adjustStack(targetId, delta) {
   ws.send(JSON.stringify({ type: "adjust_stack", target: targetId, delta }));
@@ -115,6 +136,16 @@ function render() {
 
   // Show/hide host-only controls based on whether I'm the host.
   document.body.classList.toggle("not-host", state.host !== myId);
+
+  // Game start/pause toggle (host only; hidden for others via CSS).
+  $("game-toggle-btn").textContent = state.auto_running ? "⏸ 게임 멈춤" : "▶ 게임 시작";
+
+  // Set the local countdown deadline from the server's "seconds left".
+  if (state.hand_in_progress && state.to_act && state.time_left != null) {
+    actorDeadline = Date.now() + state.time_left * 1000;
+  } else {
+    actorDeadline = null;
+  }
 
   // Keep open modals in sync with fresh state.
   if (!$("settings-modal").classList.contains("hidden")) renderSettings();
@@ -218,13 +249,18 @@ function renderControls() {
   const actionBar = $("action-bar");
   const waitingBar = $("waiting-bar");
 
-  // Between hands, show the deal controls. Only the host gets the button.
+  // Between hands, show a status hint. Start/pause now lives in the top bar.
   waitingBar.classList.toggle("hidden", state.hand_in_progress);
+  $("deal-btn").style.display = "none";
   const isHost = state.host === myId;
-  $("deal-btn").style.display = isHost ? "" : "none";
-  document.querySelector(".waiting-hint").textContent = isHost
-    ? "2명 이상 모이면 딜을 시작하세요."
-    : "방장이 딜을 시작하기를 기다리는 중...";
+  const hint = document.querySelector(".waiting-hint");
+  if (state.auto_running) {
+    hint.textContent = "다음 핸드를 준비하는 중...";
+  } else if (isHost) {
+    hint.textContent = "상단의 ▶ 게임 시작을 눌러 진행하세요. (2명 이상 필요)";
+  } else {
+    hint.textContent = "방장이 게임을 시작하기를 기다리는 중...";
+  }
 
   const myTurn = priv && priv.your_turn && priv.legal;
   actionBar.classList.toggle("hidden", !myTurn);
@@ -265,10 +301,11 @@ function renderSettings() {
   set("sb-input", state.small_blind);
   set("bb-input", state.big_blind);
   set("default-stack-input", state.starting_chips);
-  ["apply-blinds", "apply-default-stack"].forEach((id) => ($(id).disabled = !isHost));
-  $("sb-input").disabled = !isHost;
-  $("bb-input").disabled = !isHost;
-  $("default-stack-input").disabled = !isHost;
+  set("timeout-input", state.action_timeout);
+  ["apply-blinds", "apply-default-stack", "apply-timeout"].forEach(
+    (id) => ($(id).disabled = !isHost));
+  ["sb-input", "bb-input", "default-stack-input", "timeout-input"].forEach(
+    (id) => ($(id).disabled = !isHost));
 
   // Per-player stack adjust rows.
   const list = $("adjust-list");

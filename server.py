@@ -25,6 +25,10 @@ from poker.game import Game
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
+NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
+DEFAULT_TIMEOUT = 30       # seconds per action
+MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
+
 app = FastAPI()
 
 
@@ -46,6 +50,87 @@ class Room:
         #   last_stack = most recent chip count (live, or frozen when they left)
         #   active  = is someone currently connected under this name
         self.ledger: dict[str, dict] = {}
+
+        # ---- auto-deal + action timer ----
+        self.auto_running = False          # is the table continuously dealing?
+        self.timeout_seconds = DEFAULT_TIMEOUT
+        self.action_deadline: float | None = None   # monotonic time the current actor must act by
+        self.next_hand_at: float | None = None      # monotonic time to deal the next hand
+        self.loop_task: asyncio.Task | None = None   # background ticker
+
+    # ---- timing engine --------------------------------------------------------
+
+    @staticmethod
+    def _now() -> float:
+        return asyncio.get_running_loop().time()
+
+    def arm_timer(self):
+        """(Re)start the action clock for whoever is currently to act."""
+        g = self.game
+        if g.hand_in_progress and g.to_act is not None:
+            self.action_deadline = self._now() + self.timeout_seconds
+        else:
+            self.action_deadline = None
+
+    def ensure_loop(self):
+        if self.loop_task is None or self.loop_task.done():
+            self.loop_task = asyncio.create_task(self._run_loop())
+
+    def stop_loop(self):
+        if self.loop_task and not self.loop_task.done():
+            self.loop_task.cancel()
+        self.loop_task = None
+        self.auto_running = False
+        self.action_deadline = None
+        self.next_hand_at = None
+
+    def _auto_act(self):
+        """Time ran out: act for the player automatically (check, else fold)."""
+        g = self.game
+        if not g.hand_in_progress or g.to_act is None:
+            return
+        pid = g.players[g.to_act].id
+        legal = g.legal_actions(pid)
+        if legal and legal.get("can_check"):
+            g.act(pid, "check")
+        else:
+            g.act(pid, "fold")
+
+    def _tick(self) -> bool:
+        """One step of the background clock. Returns True if state changed."""
+        g = self.game
+        now = self._now()
+        if g.hand_in_progress and g.to_act is not None:
+            self.next_hand_at = None
+            if self.action_deadline is not None and now >= self.action_deadline:
+                self._auto_act()
+                self.arm_timer()     # arm for the next actor (or clear if hand ended)
+                return True
+            return False
+        # Between hands: auto-deal the next one if the table is running.
+        self.action_deadline = None
+        if self.auto_running and g.can_start():
+            if self.next_hand_at is None:
+                self.next_hand_at = now + NEXT_HAND_DELAY
+            elif now >= self.next_hand_at:
+                g.start_hand()
+                self.next_hand_at = None
+                self.arm_timer()
+                return True
+        else:
+            self.next_hand_at = None
+        return False
+
+    async def _run_loop(self):
+        try:
+            while True:
+                await asyncio.sleep(0.25)
+                async with self.lock:
+                    changed = self._tick()
+                if changed:
+                    await self.broadcast()
+        except asyncio.CancelledError:
+            pass
 
     def ledger_entry(self, name: str) -> dict:
         return self.ledger.setdefault(
@@ -71,6 +156,14 @@ class Room:
         public = self.game.public_state()
         public["host"] = self.host_id
         public["ledger"] = self.ledger_view()
+        public["auto_running"] = self.auto_running
+        public["action_timeout"] = self.timeout_seconds
+        # Seconds left for the current actor (clients run their own countdown from this).
+        time_left = None
+        if (self.action_deadline is not None and self.game.hand_in_progress
+                and self.game.to_act is not None):
+            time_left = max(0.0, self.action_deadline - self._now())
+        public["time_left"] = time_left
         dead = []
         for ws, pid in self.connections.items():
             payload = {
@@ -145,15 +238,30 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "error", "message": error})
                 else:
                     await ws.send_json({"type": "joined", "id": pid, "room": room_id})
+                    room.ensure_loop()      # make sure the timer/auto-deal clock is running
                     await room.broadcast()
 
             elif mtype == "start" and room:
                 if pid != room.host_id:
                     await ws.send_json({"type": "error",
-                                        "message": "방장만 딜을 시작할 수 있습니다."})
+                                        "message": "방장만 게임을 시작할 수 있습니다."})
                 else:
                     async with room.lock:
-                        room.game.start_hand()
+                        room.auto_running = True       # keep dealing hands automatically
+                        room.next_hand_at = None
+                        if not room.game.hand_in_progress and room.game.can_start():
+                            room.game.start_hand()
+                            room.arm_timer()
+                    await room.broadcast()
+
+            elif mtype == "pause" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error",
+                                        "message": "방장만 게임을 멈출 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.auto_running = False      # current hand finishes, then stop
+                        room.next_hand_at = None
                     await room.broadcast()
 
             elif mtype == "action" and room and pid:
@@ -161,9 +269,20 @@ async def websocket_endpoint(ws: WebSocket):
                 amount = int(msg.get("amount") or 0)
                 async with room.lock:
                     err = room.game.act(pid, action, amount)
+                    if not err:
+                        room.arm_timer()    # reset the clock for the next actor
                 if err:
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
+
+            elif mtype == "set_timeout" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    secs = int(msg.get("amount") or DEFAULT_TIMEOUT)
+                    async with room.lock:
+                        room.timeout_seconds = max(MIN_TIMEOUT, min(MAX_TIMEOUT, secs))
+                    await room.broadcast()
 
             elif mtype == "set_blinds" and room:
                 if pid != room.host_id:
@@ -219,6 +338,8 @@ async def websocket_endpoint(ws: WebSocket):
                 if room.host_id == leaving:   # host left -> pass the crown to anyone left
                     room.host_id = room.game.players[0].id if room.game.players else None
             await room.broadcast()
+            if not room.connections:          # last one out -> stop the clock
+                room.stop_loop()
 
 
 # Serve the rest of the static files (app.js, style.css) under /static.
