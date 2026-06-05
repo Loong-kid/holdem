@@ -3,16 +3,6 @@
 웹 멀티플레이 텍사스 홀덤 (No-Limit). Python FastAPI + WebSocket 백엔드, vanilla JS 프론트.
 같은 방 이름으로 접속한 사람들이 한 테이블에서 같이 플레이한다.
 
-## 로컬 실행
-
-```bash
-pip install -r requirements.txt
-python server.py        # 또는: uvicorn server:app --port 8000
-```
-
-브라우저에서 http://localhost:8000 접속. 같은 와이파이의 다른 사람은
-`http://<내-PC-내부IP>:8000` 으로 접속 가능.
-
 ## 구조
 
 ```
