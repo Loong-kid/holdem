@@ -97,6 +97,14 @@ $("sit-btn").onclick = () =>
   ws.send(JSON.stringify({ type: "sit_out", value: !(priv && priv.sitting_out) }));
 $("rebuy-btn").onclick = () => ws.send(JSON.stringify({ type: "rebuy" }));
 
+// Chat: send on submit (Enter), then clear the box.
+$("chat-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const text = $("chat-input").value.trim();
+  if (text && ws) ws.send(JSON.stringify({ type: "chat", text }));
+  $("chat-input").value = "";
+});
+
 function adjustStack(targetId, delta) {
   ws.send(JSON.stringify({ type: "adjust_stack", target: targetId, delta }));
 }
@@ -126,10 +134,14 @@ function cardEl(card, small = false) {
   if (card === "back") { el.classList.add("back"); return el; }
   const rank = card[0] === "T" ? "10" : card[0];
   const suit = card[1];
+  const sym = SUIT[suit];
   if (RED.has(suit)) el.classList.add("red");
+  const corner = `<span class="r">${rank}</span><span class="s">${sym}</span>`;
+  // Pip first so it paints behind the corner labels.
   el.innerHTML =
-    `<span class="corner-top">${rank}${SUIT[suit]}</span>` +
-    `<span class="corner-bottom">${rank}${SUIT[suit]}</span>`;
+    `<span class="pip">${sym}</span>` +
+    `<span class="corner-top">${corner}</span>` +
+    `<span class="corner-bottom">${corner}</span>`;
   return el;
 }
 
@@ -187,6 +199,7 @@ function render() {
   renderSeats();
   renderControls();
   renderLog();
+  renderChat();
 }
 
 function renderSeats() {
@@ -377,6 +390,19 @@ function renderBoard() {
   if (!body.children.length) {
     body.innerHTML = '<tr><td colspan="6" class="muted">아직 기록이 없습니다.</td></tr>';
   }
+}
+
+function renderChat() {
+  const box = $("chat-messages");
+  // Don't fight the user if they've scrolled up to read history.
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  box.innerHTML = "";
+  (state.chat || []).forEach((m) => {
+    const d = document.createElement("div");
+    d.innerHTML = `<span class="cname">${escapeHtml(m.name)}:</span> ${escapeHtml(m.text)}`;
+    box.appendChild(d);
+  });
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
 function renderLog() {

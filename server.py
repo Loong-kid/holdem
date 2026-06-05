@@ -50,6 +50,7 @@ class Room:
         #   last_stack = most recent chip count (live, or frozen when they left)
         #   active  = is someone currently connected under this name
         self.ledger: dict[str, dict] = {}
+        self.chat: list[dict] = []         # recent chat messages {name, text}
 
         # ---- auto-deal + action timer ----
         self.auto_running = False          # is the table continuously dealing?
@@ -158,6 +159,7 @@ class Room:
         public["ledger"] = self.ledger_view()
         public["auto_running"] = self.auto_running
         public["action_timeout"] = self.timeout_seconds
+        public["chat"] = self.chat[-60:]
         # Seconds left for the current actor (clients run their own countdown from this).
         time_left = None
         if (self.action_deadline is not None and self.game.hand_in_progress
@@ -274,6 +276,16 @@ async def websocket_endpoint(ws: WebSocket):
                 if err:
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
+
+            elif mtype == "chat" and room and pid:
+                text = (msg.get("text") or "").strip()[:200]
+                if text:
+                    async with room.lock:
+                        p = room.game._player(pid)
+                        name = p.name if p else "?"
+                        room.chat.append({"name": name, "text": text})
+                        room.chat = room.chat[-100:]
+                    await room.broadcast()
 
             elif mtype == "sit_out" and room and pid:
                 async with room.lock:
