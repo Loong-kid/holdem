@@ -10,6 +10,8 @@ let myId = null;
 let state = null;     // last public state
 let priv = null;      // last private state (my hole cards + legal moves)
 let actorDeadline = null;  // local wall-clock (ms) when the current actor's time runs out
+let replayFrames = [];     // step-by-step snapshots of the hand being reviewed
+let replayIndex = 0;
 
 const $ = (id) => document.getElementById(id);
 
@@ -48,6 +50,12 @@ function connect(name, room) {
       state = msg.public;
       priv = msg.private;
       render();
+    } else if (msg.type === "replay") {
+      if (msg.record) {
+        replayFrames = buildReplayFrames(msg.record);
+        replayIndex = 0;
+        renderReplayFrame();
+      }
     } else if (msg.type === "error") {
       flashStatus(msg.message);
     }
@@ -64,6 +72,7 @@ function openModal(id) { $(id).classList.remove("hidden"); }
 function closeModal(id) { $(id).classList.add("hidden"); }
 $("settings-btn").onclick = () => { renderSettings(); openModal("settings-modal"); };
 $("board-btn").onclick = () => { renderBoard(); openModal("board-modal"); };
+$("replay-btn").onclick = () => { renderReplayList(); openModal("replay-modal"); };
 document.querySelectorAll(".modal-close").forEach(
   (b) => (b.onclick = () => closeModal(b.dataset.close)));
 // Click outside the box closes the modal.
@@ -96,6 +105,31 @@ $("game-toggle-btn").onclick = () =>
 $("sit-btn").onclick = () =>
   ws.send(JSON.stringify({ type: "sit_out", value: !(priv && priv.sitting_out) }));
 $("rebuy-btn").onclick = () => ws.send(JSON.stringify({ type: "rebuy" }));
+
+// Drag the handle at the top of a docked panel to resize it. Because the panels
+// are anchored to the bottom of the screen, dragging UP makes them taller.
+(function setupPanelResize() {
+  let active = null, startY = 0, startH = 0;
+  document.querySelectorAll(".panel-handle").forEach((h) => {
+    h.addEventListener("mousedown", (e) => {
+      active = $(h.dataset.target);
+      startY = e.clientY;
+      startH = active.offsetHeight;
+      document.body.style.userSelect = "none";
+      e.preventDefault();
+    });
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!active) return;
+    let h = startH + (startY - e.clientY);
+    h = Math.max(70, Math.min(window.innerHeight * 0.78, h));
+    active.style.height = h + "px";
+  });
+  window.addEventListener("mouseup", () => {
+    active = null;
+    document.body.style.userSelect = "";
+  });
+})();
 
 // Chat: send on submit (Enter), then clear the box.
 $("chat-form").addEventListener("submit", (e) => {
@@ -392,6 +426,145 @@ function renderBoard() {
   }
 }
 
+// ---- Replay viewer --------------------------------------------------------
+$("replay-prev").onclick = () => { replayIndex--; renderReplayFrame(); };
+$("replay-next").onclick = () => { replayIndex++; renderReplayFrame(); };
+
+function renderReplayList() {
+  const box = $("replay-list");
+  box.innerHTML = "";
+  const items = (state && state.replays) || [];
+  if (!items.length) {
+    box.innerHTML = '<p class="muted">아직 기록된 핸드가 없습니다.</p>';
+    return;
+  }
+  items.forEach((r) => {
+    const d = document.createElement("div");
+    d.className = "replay-item";
+    d.textContent = r.title;
+    d.onclick = () => {
+      [...box.children].forEach((c) => c.classList.remove("sel"));
+      d.classList.add("sel");
+      ws.send(JSON.stringify({ type: "get_replay", number: r.number }));
+    };
+    box.appendChild(d);
+  });
+}
+
+function koAction(label) {
+  if (!label) return "";
+  if (label.startsWith("fold")) return "폴드";
+  if (label.startsWith("check")) return "체크";
+  if (label.startsWith("call")) return "콜";
+  if (label.startsWith("all-in")) return "올인" + label.slice(6);
+  if (label.startsWith("raise")) return "레이즈" + label.slice(5);
+  return label;
+}
+const KO_STREET = { flop: "플롭", turn: "턴", river: "리버" };
+
+// Replay events -> a list of full snapshots the user can step through.
+function buildReplayFrames(record) {
+  const events = record.events || [];
+  const players = {};
+  let order = [];
+  let community = [];
+  let pot = 0;
+  const frames = [];
+  const snap = (caption) => frames.push({
+    caption, community: [...community], pot,
+    players: order.map((n) => ({ ...players[n], hole: [...(players[n].hole || [])] })),
+  });
+
+  events.forEach((e) => {
+    if (e.type === "start") {
+      order = e.players.map((p) => p.name);
+      e.players.forEach((p) => (players[p.name] = {
+        name: p.name, seat: p.seat, hole: p.hole, stack: p.stack,
+        bet: 0, folded: false, action: "", win: 0, handDesc: "",
+      }));
+      community = []; pot = 0;
+      snap(`핸드 #${record.number} 시작 · 블라인드 ${e.sb}/${e.bb} · 버튼 ${e.button}`);
+    } else if (e.type === "post") {
+      const p = players[e.name];
+      if (p) { p.stack -= e.amount; p.bet += e.amount; p.action = e.blind; }
+      pot = e.pot;
+      snap(`${e.name} · ${e.blind} ${e.amount}`);
+    } else if (e.type === "action") {
+      const p = players[e.name];
+      if (p) {
+        p.stack -= e.paid; p.bet += e.paid; p.action = koAction(e.label);
+        if (e.label && e.label.startsWith("fold")) p.folded = true;
+      }
+      pot = e.pot;
+      snap(`${e.name} — ${koAction(e.label)}`);
+    } else if (e.type === "street") {
+      community = e.cards;
+      order.forEach((n) => { players[n].bet = 0; players[n].action = ""; });
+      snap(`${KO_STREET[e.street] || e.street}: ${e.cards.join(" ")}`);
+    } else if (e.type === "result") {
+      community = e.board || community;
+      let cap;
+      if (e.showdown) {
+        (e.reveals || []).forEach((r) => { if (players[r.name]) players[r.name].handDesc = r.hand; });
+        cap = "쇼다운 — " + (e.winners || []).map((w) => `${w.name} +${w.amount}`).join(", ");
+      } else {
+        cap = (e.winners || []).map((w) => `${w.name} +${w.amount} (모두 폴드)`).join(", ");
+      }
+      (e.winners || []).forEach((w) => {
+        if (players[w.name]) { players[w.name].win = w.amount; players[w.name].stack += w.amount; }
+      });
+      pot = 0;
+      order.forEach((n) => (players[n].bet = 0));
+      snap(cap);
+    }
+  });
+  return frames;
+}
+
+function renderReplayFrame() {
+  if (!replayFrames.length) {
+    $("replay-board").innerHTML = "";
+    $("replay-players").innerHTML = '<p class="muted">왼쪽에서 핸드를 선택하세요.</p>';
+    $("replay-pot").textContent = "";
+    $("replay-caption").textContent = "";
+    $("replay-step").textContent = "";
+    return;
+  }
+  replayIndex = Math.max(0, Math.min(replayFrames.length - 1, replayIndex));
+  const f = replayFrames[replayIndex];
+
+  const board = $("replay-board");
+  board.innerHTML = "";
+  for (let i = 0; i < 5; i++) board.appendChild(cardEl(f.community[i] || null, false));
+
+  $("replay-pot").textContent = `팟: ${f.pot}`;
+
+  const pl = $("replay-players");
+  pl.innerHTML = "";
+  f.players.forEach((p) => {
+    const row = document.createElement("div");
+    row.className = "rp-row" + (p.folded ? " folded" : "");
+    const cards = document.createElement("div");
+    cards.className = "rp-cards";
+    (p.hole || []).forEach((c) => cards.appendChild(cardEl(c, true)));
+    const info = document.createElement("div");
+    info.className = "rp-info";
+    info.innerHTML =
+      `<span class="rp-name">${escapeHtml(p.name)}</span>` +
+      `<span class="rp-stack">${p.stack}</span>` +
+      (p.bet > 0 ? `<span class="rp-bet">🪙${p.bet}</span>` : "") +
+      (p.action ? `<span class="rp-act">${escapeHtml(p.action)}</span>` : "") +
+      (p.handDesc ? `<span class="rp-hand">${escapeHtml(p.handDesc)}</span>` : "") +
+      (p.win > 0 ? `<span class="rp-win">+${p.win}</span>` : "");
+    row.appendChild(cards);
+    row.appendChild(info);
+    pl.appendChild(row);
+  });
+
+  $("replay-caption").textContent = f.caption;
+  $("replay-step").textContent = `${replayIndex + 1} / ${replayFrames.length}`;
+}
+
 function renderChat() {
   const box = $("chat-messages");
   // Don't fight the user if they've scrolled up to read history.
@@ -406,7 +579,7 @@ function renderChat() {
 }
 
 function renderLog() {
-  const log = $("log");
+  const log = $("log-body");
   log.innerHTML = "";
   (state.log || []).forEach((line) => {
     const d = document.createElement("div");

@@ -62,6 +62,10 @@ class Game:
         self.log: list[str] = []          # text feed for the UI
         self.results: list[dict] = []     # winners of the last hand
         self.revealed: dict[str, list[str]] = {}  # pid -> hole cards at showdown
+        # ---- replay recording ----
+        self.history: list[dict] = []     # events of the current hand
+        self.hand_log: list[dict] = []    # finished hands (for replay), most recent last
+        self.hand_count = 0               # how many hands have completed
 
     # ---- seat / player helpers ------------------------------------------------
 
@@ -211,6 +215,19 @@ class Game:
             for i in order:
                 self.players[i].hole.append(self.deck.deal_one())
 
+        # Begin recording this hand for replay (stacks here are pre-blind).
+        self.history = [{
+            "type": "start",
+            "button": self.players[self.button].name,
+            "sb": self.sb, "bb": self.bb,
+            "players": [
+                {"name": self.players[i].name, "seat": i,
+                 "hole": list(self.players[i].hole),
+                 "stack": self.players[i].chips}
+                for i in order
+            ],
+        }]
+
         # Post blinds. Heads-up (2 players) has special positions.
         if len(in_hand) == 2:
             sb_seat = self.button
@@ -245,6 +262,8 @@ class Game:
         if p.chips == 0:
             p.all_in = True
         self.log.append(f"{p.name} posts {label} {pay}.")
+        self.history.append({"type": "post", "name": p.name,
+                             "blind": label, "amount": pay, "pot": self.pot})
 
     def _commit(self, p: Player, amount: int):
         """Move chips from a player's stack into the pot."""
@@ -307,6 +326,7 @@ class Game:
             return "Not your turn."
         p = self.players[seat]
         to_call = self.current_bet - p.bet
+        chips_before = p.chips
 
         if action == "fold":
             p.folded = True
@@ -355,6 +375,12 @@ class Game:
         else:
             return f"Unknown action: {action}"
 
+        # Record the action for replay (street = the street it happened on).
+        self.history.append({
+            "type": "action", "name": p.name, "label": p.last_action,
+            "paid": chips_before - p.chips, "pot": self.pot, "street": self.phase,
+        })
+
         p.has_acted = True
         self._after_action()
         return None
@@ -396,6 +422,8 @@ class Game:
             return
 
         self.log.append(f"--- {self.phase.title()}: {' '.join(self.community)} ---")
+        self.history.append({"type": "street", "street": self.phase,
+                             "cards": list(self.community)})
 
         # If at most one player can still act, no more betting is possible -
         # deal the rest of the board straight through to showdown.
@@ -410,6 +438,9 @@ class Game:
     # ---- ending a hand --------------------------------------------------------
 
     def _win_uncontested(self, winner: Player):
+        self.history.append({"type": "result", "showdown": False,
+                             "board": list(self.community), "reveals": [],
+                             "winners": [{"name": winner.name, "amount": self.pot}]})
         winner.chips += self.pot
         self.results = [{"id": winner.id, "name": winner.name,
                          "amount": self.pot, "hand": ""}]
@@ -444,6 +475,7 @@ class Game:
                 payouts[winners[0].id] += remainder
 
         self.results = []
+        winners_rec = []
         for p in contenders:
             if payouts[p.id] > 0:
                 p.chips += payouts[p.id]
@@ -451,6 +483,13 @@ class Game:
                 self.results.append({"id": p.id, "name": p.name,
                                      "amount": payouts[p.id], "hand": desc})
                 self.log.append(f"{p.name} wins {payouts[p.id]} with {desc}.")
+                winners_rec.append({"name": p.name, "amount": payouts[p.id]})
+        self.history.append({
+            "type": "result", "showdown": True, "board": list(self.community),
+            "reveals": [{"name": p.name, "hole": list(p.hole),
+                         "hand": describe(scores[p.id])} for p in contenders],
+            "winners": winners_rec,
+        })
         self.pot = 0
         self._finish_hand()
 
@@ -481,6 +520,41 @@ class Game:
         self.to_act = None
         if self.phase != "showdown":
             self.phase = "waiting"
+        # Archive this hand for replay (keep memory bounded to the last 50).
+        if self.history:
+            self.hand_count += 1
+            self.hand_log.append({"number": self.hand_count,
+                                  "events": self.history})
+            self.hand_log = self.hand_log[-50:]
+            self.history = []
+
+    # ---- replay access --------------------------------------------------------
+
+    def replay_list(self) -> list[dict]:
+        """Compact list of recent hands for the replay menu (newest first)."""
+        out = []
+        for rec in self.hand_log[-30:]:
+            result = next((e for e in rec["events"] if e["type"] == "result"), None)
+            title = f"#{rec['number']}"
+            if result and result["winners"]:
+                w = result["winners"][0]
+                title = f"#{rec['number']}  {w['name']} +{w['amount']}"
+                if result.get("showdown"):
+                    hand = next((r["hand"] for r in result["reveals"]
+                                 if r["name"] == w["name"]), "")
+                    if hand:
+                        title += f" ({hand})"
+                else:
+                    title += " (무쇼다운)"
+            out.append({"number": rec["number"], "title": title})
+        out.reverse()
+        return out
+
+    def get_replay(self, number: int) -> dict | None:
+        for rec in self.hand_log:
+            if rec["number"] == number:
+                return rec
+        return None
 
     # ---- serialization for the wire ------------------------------------------
 

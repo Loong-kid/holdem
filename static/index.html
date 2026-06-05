@@ -33,6 +33,7 @@
       <button id="rebuy-btn" class="small accent hidden">💰 리바이</button>
       <button id="sit-btn" class="small">자리비움</button>
       <button id="game-toggle-btn" class="small host-only">▶ 게임 시작</button>
+      <button id="replay-btn" class="small">🎬 리플레이</button>
       <button id="board-btn" class="small">🏆 기록</button>
       <button id="settings-btn" class="small">⚙ 설정</button>
       <button id="leave-btn" class="small">나가기</button>
@@ -66,10 +67,14 @@
       <span class="waiting-hint">2명 이상 모이면 딜을 시작하세요.</span>
     </div>
 
-    <div id="log" class="log"></div>
+    <div id="log" class="panel log-panel">
+      <div class="panel-handle" data-target="log"><span class="grip"></span></div>
+      <div id="log-body" class="panel-body log-body"></div>
+    </div>
 
-    <div id="chat" class="chat">
-      <div id="chat-messages" class="chat-messages"></div>
+    <div id="chat" class="panel chat-panel">
+      <div class="panel-handle" data-target="chat"><span class="grip"></span></div>
+      <div id="chat-messages" class="panel-body chat-messages"></div>
       <form id="chat-form" class="chat-form">
         <input id="chat-input" maxlength="200" placeholder="채팅 입력..." autocomplete="off" />
         <button type="submit">전송</button>
@@ -132,6 +137,30 @@
         <tbody id="board-body"></tbody>
       </table>
       <p class="modal-note">손익 = 현재 스택 + 뺀 스택 − (바이인 + 추가). 자리를 떠도 기록은 남고, 같은 닉네임으로 다시 들어오면 스택이 복원됩니다.</p>
+    </div>
+  </div>
+
+  <!-- Replay modal -->
+  <div id="replay-modal" class="modal hidden">
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <h2>🎬 리플레이</h2>
+        <button class="modal-close" data-close="replay-modal">✕</button>
+      </div>
+      <div class="replay-layout">
+        <div id="replay-list" class="replay-list"></div>
+        <div class="replay-view">
+          <div id="replay-board" class="replay-board"></div>
+          <div id="replay-pot" class="replay-pot"></div>
+          <div id="replay-players" class="replay-players"></div>
+          <div id="replay-caption" class="replay-caption"></div>
+          <div class="replay-controls">
+            <button id="replay-prev" class="mini-btn">◀ 이전</button>
+            <span id="replay-step" class="muted"></span>
+            <button id="replay-next" class="mini-btn">다음 ▶</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

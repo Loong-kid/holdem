@@ -234,40 +234,35 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 #deal-btn { width: 200px; }
 
 /* ---- Log ---- */
-.log {
+/* ---- Resizable docked panels (log + chat) ---- */
+.panel {
   position: fixed;
-  bottom: 8px; left: 8px;
+  bottom: 8px;
   width: 280px;
-  max-height: 150px;
-  overflow-y: auto;
-  background: rgba(0,0,0,0.5);
-  border-radius: 8px;
-  padding: 8px 10px;
-  font-size: 11px;
-  color: #b8ccc0;
-  line-height: 1.5;
-}
-.log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-/* ---- Chat ---- */
-.chat {
-  position: fixed;
-  bottom: 8px; right: 8px;
-  width: 280px;
+  height: 150px;            /* adjustable by dragging the handle */
   display: flex;
   flex-direction: column;
   background: rgba(0,0,0,0.55);
   border-radius: 8px;
   overflow: hidden;
 }
-.chat-messages {
-  max-height: 160px;
-  overflow-y: auto;
-  padding: 8px 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #e2efe8;
+.log-panel { left: 8px; }
+.chat-panel { right: 8px; height: 200px; }
+.panel-handle {
+  flex: none;
+  height: 13px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.06);
 }
+.panel-handle:hover { background: rgba(255,255,255,0.14); }
+.panel-handle .grip { width: 32px; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.4); }
+.panel-body { flex: 1; overflow-y: auto; padding: 8px 10px; }
+.log-body { font-size: 11px; color: #b8ccc0; line-height: 1.5; }
+.log-body div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-messages { font-size: 12px; line-height: 1.5; color: #e2efe8; }
 .chat-messages .cname { color: var(--gold); font-weight: 700; }
 .chat-messages div { word-break: break-word; }
 .chat-form { display: flex; border-top: 1px solid #2c4a38; }
@@ -367,3 +362,32 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 
 /* Hide host-only controls for non-hosts. */
 body.not-host .host-only { display: none !important; }
+
+/* ---- Replay viewer ---- */
+.modal-box.wide { width: 680px; }
+.replay-layout { display: flex; gap: 14px; margin-top: 14px; }
+.replay-list {
+  width: 180px; flex: none; max-height: 60vh; overflow-y: auto;
+  border-right: 1px solid #2c4a38; padding-right: 8px;
+}
+.replay-item {
+  padding: 8px 10px; border-radius: 6px; font-size: 12px;
+  cursor: pointer; color: #cfe0d6; margin-bottom: 4px;
+}
+.replay-item:hover { background: rgba(255,255,255,0.06); }
+.replay-item.sel { background: #1c3a28; color: #fff; border: 1px solid var(--gold); }
+.replay-view { flex: 1; min-width: 0; }
+.replay-board { display: flex; gap: 6px; justify-content: center; min-height: 108px; }
+.replay-pot { text-align: center; color: var(--gold); font-weight: 700; margin-top: 8px; }
+.replay-players { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.rp-row { display: flex; align-items: center; gap: 10px; background: #122318; border-radius: 8px; padding: 6px 10px; }
+.rp-row.folded { opacity: 0.45; }
+.rp-cards { display: flex; gap: 3px; }
+.rp-info { font-size: 13px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rp-name { font-weight: 700; }
+.rp-stack { color: var(--gold); }
+.rp-bet { color: #ffe9a8; }
+.rp-act { color: #9fbfa9; }
+.rp-hand { color: #8fd0ff; }
+.rp-win { color: #7CFC00; font-weight: 700; }
+.replay-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 14px; }

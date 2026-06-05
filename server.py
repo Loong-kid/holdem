@@ -160,6 +160,7 @@ class Room:
         public["auto_running"] = self.auto_running
         public["action_timeout"] = self.timeout_seconds
         public["chat"] = self.chat[-60:]
+        public["replays"] = self.game.replay_list()
         # Seconds left for the current actor (clients run their own countdown from this).
         time_left = None
         if (self.action_deadline is not None and self.game.hand_in_progress
@@ -276,6 +277,11 @@ async def websocket_endpoint(ws: WebSocket):
                 if err:
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
+
+            elif mtype == "get_replay" and room:
+                num = int(msg.get("number") or 0)
+                rec = room.game.get_replay(num)
+                await ws.send_json({"type": "replay", "record": rec})
 
             elif mtype == "chat" and room and pid:
                 text = (msg.get("text") or "").strip()[:200]
