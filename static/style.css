@@ -191,6 +191,19 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
   min-height: 16px;
 }
 .seat .paction { font-size: 11px; color: #9fbfa9; min-height: 14px; }
+.pos-chip {
+  display: inline-block;
+  background: #3a5a98; color: #fff;
+  font-size: 10px; font-weight: 800;
+  padding: 1px 5px; border-radius: 4px;
+  margin-right: 4px; vertical-align: middle;
+}
+.rp-pos {
+  background: #3a5a98; color: #fff; font-size: 10px; font-weight: 800;
+  padding: 1px 5px; border-radius: 4px;
+}
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #c8dcd0; cursor: pointer; }
+.check-row input { width: auto; }
 .dealer-btn {
   display: inline-block;
   width: 20px; height: 20px;

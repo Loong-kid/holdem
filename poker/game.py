@@ -20,6 +20,19 @@ logic simple.
 from .cards import Deck, card_rank, RANK_NAME
 from .evaluator import best_hand, describe
 
+# Position names by number of players in the hand, listed in seat order from the
+# small blind around to the button. Matches common 2- to 9-handed conventions.
+POSITION_NAMES = {
+    2: ["SB", "BB"],
+    3: ["SB", "BB", "BTN"],
+    4: ["SB", "BB", "UTG", "BTN"],
+    5: ["SB", "BB", "UTG", "CO", "BTN"],
+    6: ["SB", "BB", "UTG", "HJ", "CO", "BTN"],
+    7: ["SB", "BB", "UTG", "UTG+1", "HJ", "CO", "BTN"],
+    8: ["SB", "BB", "UTG", "UTG+1", "LJ", "HJ", "CO", "BTN"],
+    9: ["SB", "BB", "UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN"],
+}
+
 
 class Player:
     def __init__(self, pid: str, name: str, chips: int):
@@ -216,6 +229,7 @@ class Game:
                 self.players[i].hole.append(self.deck.deal_one())
 
         # Begin recording this hand for replay (stacks here are pre-blind).
+        pos = self.positions()
         self.history = [{
             "type": "start",
             "button": self.players[self.button].name,
@@ -223,7 +237,8 @@ class Game:
             "players": [
                 {"name": self.players[i].name, "seat": i,
                  "hole": list(self.players[i].hole),
-                 "stack": self.players[i].chips}
+                 "stack": self.players[i].chips,
+                 "pos": pos.get(self.players[i].id, "")}
                 for i in order
             ],
         }]
@@ -528,6 +543,33 @@ class Game:
             self.hand_log = self.hand_log[-50:]
             self.history = []
 
+    def positions(self) -> dict:
+        """Map of player id -> position name (UTG, CO, BTN, ...) for the live hand.
+
+        Positions are seat-based, so a sitting-out player still occupies one.
+        Returns {} between hands.
+        """
+        if not self.hand_in_progress:
+            return {}
+        parts = [i for i, p in enumerate(self.players) if p.in_hand]
+        n = len(parts)
+        names = POSITION_NAMES.get(n)
+        if not names:
+            return {}
+        m = len(self.players)
+        if n == 2:
+            # Heads-up: the button is the small blind.
+            ordered = [self.button] + [i for i in parts if i != self.button]
+        else:
+            # Start at the small blind (first seat after the button); the button
+            # is reached last, so it lands on BTN.
+            ordered = []
+            for step in range(1, m + 1):
+                j = (self.button + step) % m
+                if j in parts:
+                    ordered.append(j)
+        return {self.players[seat].id: names[k] for k, seat in enumerate(ordered)}
+
     # ---- replay access --------------------------------------------------------
 
     def replay_list(self) -> list[dict]:
@@ -578,8 +620,17 @@ class Game:
             "hand_in_progress": self.hand_in_progress,
             "results": self.results,
             "log": self.log[-30:],
-            "players": [self._player_public(p) for p in self.players],
+            "players": self._players_public(),
         }
+
+    def _players_public(self) -> list[dict]:
+        pos = self.positions()
+        out = []
+        for p in self.players:
+            d = self._player_public(p)
+            d["position"] = pos.get(p.id, "")
+            out.append(d)
+        return out
 
     def _player_public(self, p: Player) -> dict:
         revealed = self.revealed.get(p.id)

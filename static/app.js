@@ -12,6 +12,7 @@ let priv = null;      // last private state (my hole cards + legal moves)
 let actorDeadline = null;  // local wall-clock (ms) when the current actor's time runs out
 let replayFrames = [];     // step-by-step snapshots of the hand being reviewed
 let replayIndex = 0;
+let showPositions = localStorage.getItem("showPositions") !== "0";  // personal display toggle
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,6 +92,11 @@ $("apply-default-stack").onclick = () =>
     type: "set_default_stack",
     amount: parseInt($("default-stack-input").value, 10),
   }));
+$("show-positions").onchange = (e) => {
+  showPositions = e.target.checked;
+  localStorage.setItem("showPositions", showPositions ? "1" : "0");
+  if (state) render();
+};
 $("apply-timeout").onclick = () =>
   ws.send(JSON.stringify({
     type: "set_timeout",
@@ -284,8 +290,10 @@ function renderSeats() {
     const isButton = p.id === state.button;
     const isHost = p.id === state.host;
     const won = (state.results || []).find((r) => r.id === p.id && !state.hand_in_progress);
+    const posChip = (showPositions && p.position)
+      ? `<span class="pos-chip">${p.position}</span>` : "";
     plate.innerHTML =
-      `<div class="pname">${isHost ? "👑 " : ""}${escapeHtml(p.name)}${isButton ? '<span class="dealer-btn">D</span>' : ""}</div>` +
+      `<div class="pname">${posChip}${isHost ? "👑 " : ""}${escapeHtml(p.name)}${isButton ? '<span class="dealer-btn">D</span>' : ""}</div>` +
       `<div class="pchips">${p.chips}</div>` +
       (won ? `<div class="winner-badge">WIN +${won.amount}</div>` : "");
     seat.appendChild(plate);
@@ -356,6 +364,7 @@ function renderControls() {
 
 function renderSettings() {
   if (!state) return;
+  $("show-positions").checked = showPositions;   // personal, not host-gated
   const isHost = state.host === myId;
   $("settings-note").textContent = isHost
     ? "방장으로서 아래 설정을 변경할 수 있습니다."
@@ -479,7 +488,7 @@ function buildReplayFrames(record) {
     if (e.type === "start") {
       order = e.players.map((p) => p.name);
       e.players.forEach((p) => (players[p.name] = {
-        name: p.name, seat: p.seat, hole: p.hole, stack: p.stack,
+        name: p.name, seat: p.seat, hole: p.hole, stack: p.stack, pos: p.pos || "",
         bet: 0, folded: false, action: "", win: 0, handDesc: "",
       }));
       community = []; pot = 0;
@@ -550,6 +559,7 @@ function renderReplayFrame() {
     const info = document.createElement("div");
     info.className = "rp-info";
     info.innerHTML =
+      (p.pos ? `<span class="rp-pos">${escapeHtml(p.pos)}</span>` : "") +
       `<span class="rp-name">${escapeHtml(p.name)}</span>` +
       `<span class="rp-stack">${p.stack}</span>` +
       (p.bet > 0 ? `<span class="rp-bet">🪙${p.bet}</span>` : "") +
