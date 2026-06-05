@@ -26,6 +26,7 @@ class Player:
         self.id = pid
         self.name = name
         self.chips = chips
+        self.sitting_out = False   # persists across hands: skip dealing but still owe blinds
         self.reset_for_hand(dealt_in=False)
 
     def reset_for_hand(self, dealt_in: bool):
@@ -122,6 +123,28 @@ class Game:
         self.log.append(f"{abs(delta)} chips {verb} {p.name}.")
         return delta, None
 
+    def set_sitting_out(self, pid: str, value: bool):
+        """Toggle a player's sit-out. Applies from the next hand."""
+        p = self._player(pid)
+        if not p:
+            return
+        p.sitting_out = bool(value)
+        self.log.append(f"{p.name} is {'sitting out' if value else 'back in'}.")
+
+    def rebuy(self, pid: str, amount: int | None = None) -> tuple[int, str | None]:
+        """Top a player back up to the default buy-in. Allowed when they are not
+        currently contesting a live hand (e.g. busted out). Returns added amount."""
+        p = self._player(pid)
+        if not p:
+            return 0, "Player not found."
+        if self.hand_in_progress and p.in_hand and not p.folded:
+            return 0, "핸드가 끝난 뒤에 리바이할 수 있습니다."
+        amt = self.starting_chips if amount is None else max(1, int(amount))
+        p.chips += amt
+        p.sitting_out = False           # rebuying means you want to play again
+        self.log.append(f"{p.name} rebought for {amt}.")
+        return amt, None
+
     def remove_player(self, pid: str):
         p = self._player(pid)
         if not p:
@@ -145,16 +168,24 @@ class Game:
     # ---- starting a hand ------------------------------------------------------
 
     def can_start(self) -> bool:
-        ready = [p for p in self.players if p.chips > 0]
-        return not self.hand_in_progress and len(ready) >= 2
+        playing = [p for p in self.players if p.chips > 0 and not p.sitting_out]
+        return not self.hand_in_progress and len(playing) >= 2
 
     def start_hand(self) -> bool:
-        eligible = [p for p in self.players if p.chips > 0]
-        if self.hand_in_progress or len(eligible) < 2:
+        # `seated` players (chips left) join the blind rotation; among them only
+        # those not sitting out are actually dealt cards and play.
+        seated = [p for p in self.players if p.chips > 0]
+        playing = [p for p in seated if not p.sitting_out]
+        if self.hand_in_progress or len(playing) < 2:
             return False
 
         for p in self.players:
-            p.reset_for_hand(dealt_in=(p.chips > 0))
+            in_rotation = p.chips > 0
+            p.reset_for_hand(dealt_in=in_rotation)
+            # Sitting-out players sit in the rotation (to owe blinds) but take no
+            # cards and are auto-folded, so they can only ever post a dead blind.
+            if in_rotation and p.sitting_out:
+                p.folded = True
 
         self.deck = Deck()
         self.community = []
@@ -167,13 +198,15 @@ class Game:
         self.revealed = {}
         self.log.append("--- New hand ---")
 
-        # Move the dealer button to the next eligible seat.
+        # Move the dealer button to the next seated seat.
         self.button = self._next_occupied(self.button)
 
         in_hand = [i for i, p in enumerate(self.players) if p.in_hand]
 
-        # Deal two hole cards each, one at a time starting left of the button.
-        order = self._seat_order_from(self._next_occupied(self.button))
+        # Deal two hole cards, one at a time, only to players who are playing
+        # (seated and not folded i.e. not sitting out).
+        order = [i for i in self._seat_order_from(self._next_occupied(self.button))
+                 if not self.players[i].folded]
         for _ in range(2):
             for i in order:
                 self.players[i].hole.append(self.deck.deal_one())
@@ -487,15 +520,20 @@ class Game:
             "in_hand": p.in_hand,
             "has_cards": bool(p.hole) and p.in_hand,
             "last_action": p.last_action,
+            "sitting_out": p.sitting_out,
             "hole": revealed,   # only set at showdown, otherwise None
         }
 
     def private_state(self, pid: str) -> dict:
         """The part only this player may see: their own hole cards + legal moves."""
         p = self._player(pid)
+        can_rebuy = bool(p) and p.chips == 0 and not (
+            self.hand_in_progress and p.in_hand and not p.folded)
         return {
             "hole": p.hole if p else [],
             "legal": self.legal_actions(pid),
             "your_turn": self.to_act is not None
             and self._seat(pid) == self.to_act,
+            "can_rebuy": can_rebuy,
+            "sitting_out": p.sitting_out if p else False,
         }

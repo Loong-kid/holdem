@@ -275,6 +275,21 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
 
+            elif mtype == "sit_out" and room and pid:
+                async with room.lock:
+                    room.game.set_sitting_out(pid, bool(msg.get("value")))
+                await room.broadcast()
+
+            elif mtype == "rebuy" and room and pid:
+                async with room.lock:
+                    p = room.game._player(pid)
+                    amt, err = room.game.rebuy(pid)
+                    if not err and p:
+                        room.ledger_entry(p.name)["added"] += amt
+                if err:
+                    await ws.send_json({"type": "error", "message": err})
+                await room.broadcast()
+
             elif mtype == "set_timeout" and room:
                 if pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})

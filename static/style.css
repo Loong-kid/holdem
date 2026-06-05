@@ -157,6 +157,9 @@ button.small {
 .nameplate .pchips { color: var(--gold); font-size: 12px; }
 .seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 14px var(--gold); }
 .seat.folded { opacity: 0.4; }
+.seat.sitting .nameplate { border-style: dashed; opacity: 0.85; }
+.sitting-badge { color: #9fbfa9; font-size: 11px; font-style: italic; }
+button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var(--gold); font-weight: 700; }
 .seat.me .nameplate { background: #1c3a28; }
 .seat .pbet {
   margin-top: 4px;

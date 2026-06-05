@@ -92,6 +92,11 @@ $("apply-timeout").onclick = () =>
 $("game-toggle-btn").onclick = () =>
   ws.send(JSON.stringify({ type: state && state.auto_running ? "pause" : "start" }));
 
+// Personal controls: sit out / come back, and rebuy when busted.
+$("sit-btn").onclick = () =>
+  ws.send(JSON.stringify({ type: "sit_out", value: !(priv && priv.sitting_out) }));
+$("rebuy-btn").onclick = () => ws.send(JSON.stringify({ type: "rebuy" }));
+
 function adjustStack(targetId, delta) {
   ws.send(JSON.stringify({ type: "adjust_stack", target: targetId, delta }));
 }
@@ -139,6 +144,12 @@ function render() {
 
   // Game start/pause toggle (host only; hidden for others via CSS).
   $("game-toggle-btn").textContent = state.auto_running ? "⏸ 게임 멈춤" : "▶ 게임 시작";
+
+  // Personal sit-out / rebuy controls reflect my current status.
+  const sittingOut = priv && priv.sitting_out;
+  $("sit-btn").textContent = sittingOut ? "▶ 복귀하기" : "자리비움";
+  $("sit-btn").classList.toggle("accent", sittingOut);
+  $("rebuy-btn").classList.toggle("hidden", !(priv && priv.can_rebuy));
 
   // Set the local countdown deadline from the server's "seconds left".
   if (state.hand_in_progress && state.to_act && state.time_left != null) {
@@ -202,7 +213,8 @@ function renderSeats() {
     seat.style.top = y + "%";
     if (p.id === myId) seat.classList.add("me");
     if (p.id === state.to_act) seat.classList.add("active");
-    if (p.folded) seat.classList.add("folded");
+    if (p.folded && !p.sitting_out) seat.classList.add("folded");
+    if (p.sitting_out) seat.classList.add("sitting");
 
     // Cards: my own (or revealed at showdown) face up, others face down.
     const cardsWrap = document.createElement("div");
@@ -238,7 +250,13 @@ function renderSeats() {
 
     const act = document.createElement("div");
     act.className = "paction";
-    act.textContent = p.all_in ? "ALL-IN" : (p.folded ? "fold" : "");
+    if (p.sitting_out) {
+      act.innerHTML = '<span class="sitting-badge">자리비움</span>';
+    } else if (p.chips === 0 && !p.in_hand) {
+      act.innerHTML = '<span class="sitting-badge">잔액 없음</span>';
+    } else {
+      act.textContent = p.all_in ? "ALL-IN" : (p.folded ? "fold" : "");
+    }
     seat.appendChild(act);
 
     seats.appendChild(seat);
