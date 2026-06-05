@@ -40,6 +40,8 @@ class Player:
 
 
 class Game:
+    MAX_PLAYERS = 9
+
     def __init__(self, small_blind: int = 5, big_blind: int = 10,
                  starting_chips: int = 1000):
         self.players: list[Player] = []   # seat order around the table
@@ -74,7 +76,12 @@ class Game:
                 return i
         return None
 
-    def add_player(self, pid: str, name: str) -> Player:
+    def is_full(self) -> bool:
+        return len(self.players) >= self.MAX_PLAYERS
+
+    def add_player(self, pid: str, name: str) -> Player | None:
+        if self.is_full():
+            return None
         p = Player(pid, name, self.starting_chips)
         self.players.append(p)
         self.log.append(f"{name} joined the table.")

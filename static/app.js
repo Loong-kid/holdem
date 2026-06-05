@@ -152,9 +152,10 @@ function renderSeats() {
     const plate = document.createElement("div");
     plate.className = "nameplate";
     const isButton = p.id === state.button;
+    const isHost = p.id === state.host;
     const won = (state.results || []).find((r) => r.id === p.id && !state.hand_in_progress);
     plate.innerHTML =
-      `<div class="pname">${escapeHtml(p.name)}${isButton ? '<span class="dealer-btn">D</span>' : ""}</div>` +
+      `<div class="pname">${isHost ? "👑 " : ""}${escapeHtml(p.name)}${isButton ? '<span class="dealer-btn">D</span>' : ""}</div>` +
       `<div class="pchips">${p.chips}</div>` +
       (won ? `<div class="winner-badge">WIN +${won.amount}</div>` : "");
     seat.appendChild(plate);
@@ -177,8 +178,13 @@ function renderControls() {
   const actionBar = $("action-bar");
   const waitingBar = $("waiting-bar");
 
-  // Show the deal button only between hands.
+  // Between hands, show the deal controls. Only the host gets the button.
   waitingBar.classList.toggle("hidden", state.hand_in_progress);
+  const isHost = state.host === myId;
+  $("deal-btn").style.display = isHost ? "" : "none";
+  document.querySelector(".waiting-hint").textContent = isHost
+    ? "2명 이상 모이면 딜을 시작하세요."
+    : "방장이 딜을 시작하기를 기다리는 중...";
 
   const myTurn = priv && priv.your_turn && priv.legal;
   actionBar.classList.toggle("hidden", !myTurn);

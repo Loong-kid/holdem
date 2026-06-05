@@ -36,11 +36,13 @@ class Room:
         self.game = Game(small_blind=5, big_blind=10, starting_chips=1000)
         # websocket -> player id
         self.connections: dict[WebSocket, str] = {}
+        self.host_id: str | None = None   # first player to join owns the "Deal" button
         self.lock = asyncio.Lock()   # serialize actions so the engine sees one at a time
 
     async def broadcast(self):
         """Send the latest state to every connected player (public + their private)."""
         public = self.game.public_state()
+        public["host"] = self.host_id
         dead = []
         for ws, pid in self.connections.items():
             payload = {
@@ -88,17 +90,29 @@ async def websocket_endpoint(ws: WebSocket):
                 room_id = (msg.get("room") or "main").strip() or "main"
                 name = (msg.get("name") or "Player").strip()[:16] or "Player"
                 room = manager.get(room_id)
-                pid = uuid.uuid4().hex[:8]
-                room.connections[ws] = pid
+                candidate = uuid.uuid4().hex[:8]
                 async with room.lock:
-                    room.game.add_player(pid, name)
-                await ws.send_json({"type": "joined", "id": pid, "room": room_id})
-                await room.broadcast()
+                    player = room.game.add_player(candidate, name)
+                    if player is not None:
+                        pid = candidate
+                        room.connections[ws] = pid
+                        if room.host_id is None:        # first arrival becomes host
+                            room.host_id = pid
+                if player is None:
+                    await ws.send_json({"type": "error",
+                                        "message": "테이블이 가득 찼습니다 (최대 9명)."})
+                else:
+                    await ws.send_json({"type": "joined", "id": pid, "room": room_id})
+                    await room.broadcast()
 
             elif mtype == "start" and room:
-                async with room.lock:
-                    room.game.start_hand()
-                await room.broadcast()
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error",
+                                        "message": "방장만 딜을 시작할 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.game.start_hand()
+                    await room.broadcast()
 
             elif mtype == "action" and room and pid:
                 action = msg.get("action")
@@ -119,6 +133,8 @@ async def websocket_endpoint(ws: WebSocket):
             leaving = room.connections.pop(ws)
             async with room.lock:
                 room.game.remove_player(leaving)
+                if room.host_id == leaving:   # host left -> pass the crown to anyone left
+                    room.host_id = room.game.players[0].id if room.game.players else None
             await room.broadcast()
 
 
