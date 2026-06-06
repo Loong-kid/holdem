@@ -13,6 +13,7 @@ Writes are one-per-hand, so the tiny thread hop is negligible.
 
 import asyncio
 import os
+import socket
 from urllib.parse import unquote, urlsplit
 
 try:
@@ -45,9 +46,11 @@ def _conninfo(url: str) -> str:
     driver) means special characters in the password never need URL-encoding.
     """
     p = urlsplit(url)
+    host = p.hostname
+    port = p.port or 5432
     params = {
-        "host": p.hostname,
-        "port": p.port or 5432,
+        "host": host,
+        "port": port,
         "dbname": (p.path or "/postgres").lstrip("/") or "postgres",
         "sslmode": "require",
     }
@@ -55,6 +58,19 @@ def _conninfo(url: str) -> str:
         params["user"] = unquote(p.username)
     if p.password:
         params["password"] = unquote(p.password)
+    # Resolve the hostname to an IP ourselves and pass it as `hostaddr`. libpq then
+    # connects to the IP directly (using `host` only for TLS SNI), so the driver
+    # never runs its own hostname resolver - which on some platforms chokes with
+    # "does not appear to be an IPv4 or IPv6 address".
+    if host:
+        try:
+            infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            ipv4 = [i[4][0] for i in infos if i[0] == socket.AF_INET]
+            ip = ipv4[0] if ipv4 else (infos[0][4][0] if infos else None)
+            if ip:
+                params["hostaddr"] = ip
+        except Exception:
+            pass
     return psycopg.conninfo.make_conninfo(**params)
 
 
