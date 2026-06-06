@@ -15,7 +15,11 @@ body {
   color: #f0f0f0;
   overflow: hidden;
   height: 100vh;
+  height: 100dvh;   /* dvh tracks the real viewport when the mobile address bar shows/hides */
 }
+
+/* Shown only on narrow (phone) screens; see the mobile media query at the bottom. */
+.mobile-only { display: none; }
 
 .hidden { display: none !important; }
 
@@ -87,6 +91,7 @@ button.small {
   align-items: center;
   justify-content: center;
   height: calc(100vh - 200px);
+  height: calc(100dvh - 200px);
 }
 .table {
   position: relative;
@@ -432,3 +437,77 @@ body.not-host .host-only { display: none !important; }
 .rp-hand { color: #8fd0ff; }
 .rp-win { color: #7CFC00; font-weight: 700; }
 .replay-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 14px; }
+
+/* ===========================================================================
+   Mobile / portrait layout (phones <= 600px wide). The desktop rules above are
+   left untouched; everything here only applies on narrow screens.
+   ======================================================================== */
+@media (max-width: 600px) {
+  .mobile-only { display: inline-block; }
+
+  /* Stack the screen vertically: top bar / table (fills) / action bar at bottom. */
+  #game-screen { display: flex; flex-direction: column; height: 100dvh; }
+
+  .topbar { flex-wrap: wrap; gap: 4px 6px; padding: 6px 8px; font-size: 12px; }
+  .topbar-spacer { display: none; }            /* let buttons pack + wrap naturally */
+  #room-label, #blinds-label { font-size: 12px; }
+  #tourney-label { font-size: 11px; padding: 1px 6px; width: 100%; }
+  button.small { padding: 5px 9px; font-size: 12px; }
+
+  .table-wrap { height: auto; flex: 1; min-height: 0; padding: 6px; overflow: visible; }
+  .table { width: 88vw; height: 52dvh; border-width: 7px; border-radius: 90px; }
+
+  /* Community (board) cards smaller so 5 fit on a narrow felt. */
+  .community { gap: 4px; min-height: 0; }
+  .card { width: 44px; height: 62px; border-radius: 6px; }
+  .card .corner-top .r, .card .corner-bottom .r { font-size: 15px; }
+  .card .corner-top .s, .card .corner-bottom .s { font-size: 11px; }
+  .card .pip { font-size: 30px; }
+  .pot { font-size: 14px; margin-top: 6px; }
+  .status { font-size: 12px; }
+  .turn-timer { font-size: 13px; }
+
+  /* Seats: tighter plates + tiny hole cards. */
+  .seat { width: 84px; }
+  .seat .player-cards { min-height: 46px; gap: 3px; margin-bottom: 2px; }
+  .card.small { width: 30px; height: 44px; border-radius: 4px; }
+  .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 12px; }
+  .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 9px; }
+  .card.small .pip { font-size: 22px; }
+  .nameplate { padding: 4px 5px; font-size: 11px; border-radius: 8px; }
+  .nameplate .pchips { font-size: 11px; }
+  .seat .pbet { font-size: 11px; margin-top: 2px; }
+  .seat .paction { font-size: 10px; }
+
+  /* Action bar: thumb-friendly; the raise controls wrap onto their own row. */
+  .action-bar { flex-wrap: wrap; gap: 8px; padding: 10px; }
+  .act { padding: 13px 16px; font-size: 16px; flex: 1 1 auto; min-width: 70px; }
+  .raise-group { flex: 1 1 100%; }
+  #raise-slider { flex: 1; width: auto; }
+  .raise-input { width: 64px; }
+  .waiting-bar { padding: 8px; }
+
+  /* Log + chat become bottom-sheet drawers, toggled from the top bar (📜 / 💬),
+     one at a time. Hidden until the matching body class is set. */
+  .panel { display: none; }
+  .log-panel, .chat-panel {
+    left: 0; right: 0; bottom: 0;
+    width: 100%; height: 42dvh;
+    border-radius: 14px 14px 0 0;
+    z-index: 30;
+    background: rgba(8, 18, 12, 0.96);
+  }
+  body.show-log .log-panel { display: flex; }
+  body.show-chat .chat-panel { display: flex; }
+  .panel-handle { height: 22px; }              /* bigger tap target to close */
+
+  /* Modals fill the small screen. */
+  .modal-box { width: 94vw; max-height: 86dvh; padding: 18px 16px; }
+  .modal-box.wide { width: 94vw; }
+  .tourney-levels { grid-template-columns: 1fr; max-height: 40dvh; }
+  .replay-layout { flex-direction: column; }
+  .replay-list {
+    width: 100%; border-right: none;
+    border-bottom: 1px solid #2c4a38; max-height: 26dvh;
+  }
+}

@@ -224,12 +224,28 @@ $("sit-btn").onclick = () =>
   ws.send(JSON.stringify({ type: "sit_out", value: !(priv && priv.sitting_out) }));
 $("rebuy-btn").onclick = () => ws.send(JSON.stringify({ type: "rebuy" }));
 
+// On phones the docked panels become bottom-sheet drawers toggled from the top
+// bar (📜 log / 💬 chat); only one is open at a time. On desktop they stay docked.
+const isMobile = () => window.matchMedia("(max-width: 600px)").matches;
+function toggleDrawer(which) {
+  const other = which === "chat" ? "log" : "chat";
+  document.body.classList.remove("show-" + other);
+  document.body.classList.toggle("show-" + which);
+}
+$("chat-toggle").onclick = () => toggleDrawer("chat");
+$("log-toggle").onclick = () => toggleDrawer("log");
+
 // Drag the handle at the top of a docked panel to resize it. Because the panels
 // are anchored to the bottom of the screen, dragging UP makes them taller.
+// On mobile the handle instead closes the drawer (no drag-resize on touch).
 (function setupPanelResize() {
   let active = null, startY = 0, startH = 0;
   document.querySelectorAll(".panel-handle").forEach((h) => {
+    h.addEventListener("click", () => {
+      if (isMobile()) document.body.classList.remove("show-" + h.dataset.target);
+    });
     h.addEventListener("mousedown", (e) => {
+      if (isMobile()) return;          // no drag-resize on phones
       active = $(h.dataset.target);
       startY = e.clientY;
       startH = active.offsetHeight;
@@ -375,11 +391,15 @@ function renderSeats() {
   const ordered = [];
   for (let k = 0; k < n; k++) ordered.push(players[(myIndex + k) % n]);
 
+  // Tighter ellipse on phones so the left/right seats don't hang off-screen.
+  const mob = window.innerWidth <= 600;
+  const rx = mob ? 47 : 56;
+  const ry = mob ? 45 : 50;
   ordered.forEach((p, i) => {
     // Place seat i around an ellipse; i=0 is bottom-center (me).
     const angle = (i / n) * 2 * Math.PI;
-    const x = 50 + 56 * Math.sin(angle);
-    const y = 50 + 50 * Math.cos(angle);
+    const x = 50 + rx * Math.sin(angle);
+    const y = 50 + ry * Math.cos(angle);
 
     const seat = document.createElement("div");
     seat.className = "seat";
