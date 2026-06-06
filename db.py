@@ -16,6 +16,18 @@ except ImportError:           # local dev without the driver installed
     asyncpg = None
 
 _pool = None
+_last_error = None       # why init failed last time (shown at /health)
+
+
+def status() -> dict:
+    """Diagnostic snapshot for /health - safe to expose (no secrets)."""
+    return {
+        "db": _pool is not None,
+        "persistence": "postgresql" if _pool is not None else "in-memory",
+        "driver_installed": asyncpg is not None,
+        "url_present": bool(os.environ.get("DATABASE_URL")),
+        "error": _last_error,
+    }
 
 
 def _conn_kwargs(url: str) -> dict:
@@ -55,9 +67,14 @@ async def _make_pool(url):
 
 async def init():
     """Connect (if configured) and make sure the table exists. Returns enabled?."""
-    global _pool
+    global _pool, _last_error
+    _last_error = None
     url = os.environ.get("DATABASE_URL")
-    if not url or asyncpg is None:
+    if asyncpg is None:
+        _last_error = "asyncpg driver not installed"
+        return False
+    if not url:
+        _last_error = "DATABASE_URL not set"
         return False
     try:
         _pool = await _make_pool(url)
@@ -79,6 +96,7 @@ async def init():
             )
         return True
     except Exception as e:           # bad URL / unreachable -> fall back to memory
+        _last_error = repr(e)
         print("DB init failed, using in-memory storage:", repr(e), flush=True)
         _pool = None
         return False

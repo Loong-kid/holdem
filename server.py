@@ -230,8 +230,7 @@ async def index():
 @app.get("/health")
 async def health():
     """Quick check of whether replay persistence is wired to a database."""
-    return {"db": db.enabled(),
-            "persistence": "postgresql" if db.enabled() else "in-memory"}
+    return db.status()
 
 
 @app.websocket("/ws")
