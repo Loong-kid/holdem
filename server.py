@@ -30,6 +30,7 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
+APP_VERSION = "v7-sync-psycopg"   # bump on deploy so we can confirm what's live
 
 
 @asynccontextmanager
@@ -188,6 +189,7 @@ class Room:
         public["action_timeout"] = self.timeout_seconds
         public["chat"] = self.chat[-60:]
         public["db"] = db.enabled()
+        public["version"] = APP_VERSION
         # Seconds left for the current actor (clients run their own countdown from this).
         time_left = None
         if (self.action_deadline is not None and self.game.hand_in_progress
@@ -230,7 +232,7 @@ async def index():
 @app.get("/health")
 async def health():
     """Quick check of whether replay persistence is wired to a database."""
-    return db.status()
+    return {**db.status(), "version": APP_VERSION}
 
 
 @app.websocket("/ws")

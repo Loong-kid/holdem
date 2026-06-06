@@ -372,6 +372,11 @@ function renderControls() {
 
 function renderSettings() {
   if (!state) return;
+  $("db-status").innerHTML = state.db
+    ? '데이터 저장: <span class="ok">PostgreSQL 연결됨 ✅</span> (리플레이가 영구 저장됩니다)'
+      + `<div class="ver">버전 ${state.version || "?"}</div>`
+    : '데이터 저장: <span class="warn">메모리(임시) ⚠️</span> (서버 재시작 시 리플레이가 사라집니다)'
+      + `<div class="ver">버전 ${state.version || "?"}</div>`;
   $("show-positions").checked = showPositions;   // personal, not host-gated
   const isHost = state.host === myId;
   $("settings-note").textContent = isHost
