@@ -8,6 +8,7 @@ the cloud. A finished hand is stored as one row with its events in a JSONB colum
 
 import json
 import os
+import ssl
 
 try:
     import asyncpg
@@ -17,6 +18,23 @@ except ImportError:           # local dev without the driver installed
 _pool = None
 
 
+async def _make_pool(url):
+    """Create the pool, retrying with SSL for managed providers (Supabase etc.).
+
+    statement_cache_size=0 keeps us compatible with connection poolers (pgbouncer)
+    that Supabase and others put in front of Postgres.
+    """
+    try:
+        return await asyncpg.create_pool(
+            url, min_size=1, max_size=5, statement_cache_size=0)
+    except Exception:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return await asyncpg.create_pool(
+            url, min_size=1, max_size=5, statement_cache_size=0, ssl=ctx)
+
+
 async def init():
     """Connect (if configured) and make sure the table exists. Returns enabled?."""
     global _pool
@@ -24,7 +42,7 @@ async def init():
     if not url or asyncpg is None:
         return False
     try:
-        _pool = await asyncpg.create_pool(url, min_size=1, max_size=5)
+        _pool = await _make_pool(url)
         async with _pool.acquire() as con:
             await con.execute(
                 """
