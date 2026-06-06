@@ -301,7 +301,31 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 /* ---- Top bar extras ---- */
 .topbar-spacer { flex: 1; }
 #blinds-label { color: #9fbfa9; font-size: 13px; }
+#tourney-label {
+  color: var(--gold); font-size: 13px; font-weight: 600;
+  background: rgba(232, 196, 104, 0.12);
+  border: 1px solid #5a4a22; border-radius: 6px; padding: 2px 8px;
+}
 .seat .nameplate { cursor: pointer; }
+
+/* ---- Tournament level editor ---- */
+.tourney-levels {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 16px;
+  margin-top: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.tl-row { display: flex; align-items: center; gap: 6px; }
+.tl-row .tl-lab { color: #9fbfa9; font-size: 12px; width: 38px; flex: none; }
+.tl-row input {
+  width: 64px; padding: 5px 6px; border-radius: 5px;
+  border: 1px solid #3c5c48; background: #0e1c14; color: #fff; font-size: 13px;
+}
+.tl-row input:disabled { opacity: 0.55; }
+.tl-row .tl-sep { color: #6f8a7c; }
 
 /* ---- Modals ---- */
 .modal {

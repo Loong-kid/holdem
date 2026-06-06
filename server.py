@@ -30,7 +30,20 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-APP_VERSION = "v11-manualparse"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v12-tournament"   # bump on deploy so we can confirm what's live
+
+# ---- Tournament defaults --------------------------------------------------
+# A blind level is just (small_blind, big_blind). The clock auto-advances to the
+# next level every `level_minutes`; the new blinds take effect on the next hand.
+DEFAULT_TOURNAMENT_LEVELS = [
+    (10, 20), (15, 30), (20, 40), (25, 50), (50, 100),
+    (75, 150), (100, 200), (150, 300), (200, 400), (300, 600),
+    (400, 800), (500, 1000), (700, 1400), (1000, 2000), (1500, 3000),
+    (2000, 4000), (3000, 6000), (4000, 8000), (5000, 10000), (7500, 15000),
+]
+DEFAULT_LEVEL_MINUTES = 15
+MIN_LEVEL_MINUTES, MAX_LEVEL_MINUTES = 10, 40
+MAX_LEVELS = 20
 
 
 @asynccontextmanager
@@ -72,6 +85,18 @@ class Room:
         self.loop_task: asyncio.Task | None = None   # background ticker
         self.persisted_count = 0                     # hands already written to the DB
 
+        # ---- tournament (auto-rising blinds) ----
+        # When enabled, blinds follow `blind_levels` and advance one level every
+        # `level_minutes`. The clock only runs while the table is auto_running, so
+        # pausing the game pauses the blind clock too.
+        self.tournament = False
+        self.level_minutes = DEFAULT_LEVEL_MINUTES
+        self.blind_levels: list[list[int]] = [list(lv) for lv in DEFAULT_TOURNAMENT_LEVELS]
+        self.level_index = 0                         # 0-based index into blind_levels
+        self.level_deadline: float | None = None     # monotonic time the level ends (running)
+        self.level_remaining: float | None = None    # seconds left when paused
+        self.tourney_active = False                  # clock has started and not been reset
+
     async def persist_new_hands(self):
         """Write any newly-finished hands to the database (no-op without a DB)."""
         if not db.enabled():
@@ -112,6 +137,72 @@ class Room:
         self.action_deadline = None
         self.next_hand_at = None
 
+    # ---- tournament blind clock ----------------------------------------------
+
+    def apply_level_blinds(self):
+        """Push the current level's blinds into the game engine (next hand)."""
+        i = max(0, min(self.level_index, len(self.blind_levels) - 1))
+        sb, bb = self.blind_levels[i]
+        self.game.set_blinds(sb, bb)
+        self.game.log.append(f"🏆 블라인드 레벨 {i + 1}: {sb}/{bb}")
+
+    def start_tournament_clock(self):
+        """Begin level 1 from scratch and start its timer."""
+        self.level_index = 0
+        self.apply_level_blinds()
+        self.level_deadline = self._now() + self.level_minutes * 60
+        self.level_remaining = None
+        self.tourney_active = True
+
+    def resume_tournament_clock(self):
+        """Called when the table resumes (start pressed). Starts or un-pauses."""
+        if not self.tourney_active:
+            self.start_tournament_clock()
+        elif self.level_remaining is not None:        # un-pause: count from what was left
+            self.level_deadline = self._now() + self.level_remaining
+            self.level_remaining = None
+        # else: at the final level (no deadline, nothing to resume)
+
+    def pause_tournament_clock(self):
+        """Called when the table pauses. Freeze the remaining time."""
+        if self.level_deadline is not None:
+            self.level_remaining = max(0.0, self.level_deadline - self._now())
+            self.level_deadline = None
+
+    def reset_tournament_clock(self):
+        self.level_index = 0
+        self.level_deadline = None
+        self.level_remaining = None
+        self.tourney_active = False
+
+    def tournament_state(self) -> dict:
+        """Tournament info for the wire (drives the top-bar clock + settings editor)."""
+        if not self.tournament:
+            return {"enabled": False, "levels": self.blind_levels,
+                    "minutes": self.level_minutes}
+        if self.level_deadline is not None:
+            time_left = max(0.0, self.level_deadline - self._now())
+            running = True
+        elif self.level_remaining is not None:
+            time_left = self.level_remaining
+            running = False
+        else:
+            time_left = None                         # not started, or final level
+            running = False
+        i = min(self.level_index, len(self.blind_levels) - 1)
+        sb, bb = self.blind_levels[i]
+        return {
+            "enabled": True,
+            "level": i + 1,
+            "total_levels": len(self.blind_levels),
+            "minutes": self.level_minutes,
+            "sb": sb, "bb": bb,
+            "is_last": i >= len(self.blind_levels) - 1,
+            "running": running,
+            "time_left": time_left,
+            "levels": self.blind_levels,
+        }
+
     def _auto_act(self):
         """Time ran out: act for the player automatically (check, else fold)."""
         g = self.game
@@ -128,13 +219,28 @@ class Room:
         """One step of the background clock. Returns True if state changed."""
         g = self.game
         now = self._now()
+        changed = False
+
+        # Tournament blind clock: independent of whose turn it is. Advancing a
+        # level just changes the blinds; they apply on the next hand (engine
+        # rule), so it is safe to fire even mid-hand.
+        if self.tournament and self.auto_running and self.level_deadline is not None:
+            if now >= self.level_deadline:
+                if self.level_index < len(self.blind_levels) - 1:
+                    self.level_index += 1
+                    self.apply_level_blinds()
+                    self.level_deadline = now + self.level_minutes * 60
+                else:
+                    self.level_deadline = None     # reached the final level; stop rising
+                changed = True
+
         if g.hand_in_progress and g.to_act is not None:
             self.next_hand_at = None
             if self.action_deadline is not None and now >= self.action_deadline:
                 self._auto_act()
                 self.arm_timer()     # arm for the next actor (or clear if hand ended)
                 return True
-            return False
+            return changed
         # Between hands: auto-deal the next one if the table is running.
         self.action_deadline = None
         if self.auto_running and g.can_start():
@@ -147,7 +253,7 @@ class Room:
                 return True
         else:
             self.next_hand_at = None
-        return False
+        return changed
 
     async def _run_loop(self):
         try:
@@ -190,6 +296,7 @@ class Room:
         public["chat"] = self.chat[-60:]
         public["db"] = db.enabled()
         public["version"] = APP_VERSION
+        public["tournament"] = self.tournament_state()
         # Seconds left for the current actor (clients run their own countdown from this).
         time_left = None
         if (self.action_deadline is not None and self.game.hand_in_progress
@@ -287,6 +394,8 @@ async def websocket_endpoint(ws: WebSocket):
                     async with room.lock:
                         room.auto_running = True       # keep dealing hands automatically
                         room.next_hand_at = None
+                        if room.tournament:
+                            room.resume_tournament_clock()
                         if not room.game.hand_in_progress and room.game.can_start():
                             room.game.start_hand()
                             room.arm_timer()
@@ -300,6 +409,8 @@ async def websocket_endpoint(ws: WebSocket):
                     async with room.lock:
                         room.auto_running = False      # current hand finishes, then stop
                         room.next_hand_at = None
+                        if room.tournament:
+                            room.pause_tournament_clock()
                     await room.broadcast()
 
             elif mtype == "action" and room and pid:
@@ -369,6 +480,38 @@ async def websocket_endpoint(ws: WebSocket):
                 else:
                     async with room.lock:
                         room.game.set_blinds(msg.get("sb"), msg.get("bb"))
+                    await room.broadcast()
+
+            elif mtype == "set_tournament" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.tournament = bool(msg.get("enabled"))
+                        mins = int(msg.get("minutes") or room.level_minutes)
+                        room.level_minutes = max(MIN_LEVEL_MINUTES,
+                                                 min(MAX_LEVEL_MINUTES, mins))
+                        levels = msg.get("levels")
+                        if isinstance(levels, list) and levels:
+                            cleaned = []
+                            for lv in levels[:MAX_LEVELS]:
+                                try:
+                                    sb = max(0, int(lv[0]))
+                                    bb = max(1, int(lv[1]))
+                                except (TypeError, ValueError, IndexError):
+                                    continue
+                                cleaned.append([sb, bb])
+                            if cleaned:
+                                room.blind_levels = cleaned
+                        room.level_index = min(room.level_index,
+                                               len(room.blind_levels) - 1)
+                        if not room.tournament:
+                            # Turning it off resets the clock so a later re-enable
+                            # starts a fresh tournament at level 1.
+                            room.reset_tournament_clock()
+                        elif room.tournament and room.auto_running and not room.tourney_active:
+                            # Enabled mid-game while already running -> start now.
+                            room.start_tournament_clock()
                     await room.broadcast()
 
             elif mtype == "set_default_stack" and room:

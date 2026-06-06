@@ -14,6 +14,17 @@ let replayFrames = [];     // step-by-step snapshots of the hand being reviewed
 let replayIndex = 0;
 let replayList = [];       // [{number, title}] fetched on demand
 let showPositions = localStorage.getItem("showPositions") !== "0";  // personal display toggle
+let curTourney = null;     // last tournament state (for the top-bar clock)
+let levelDeadline = null;  // local wall-clock (ms) when the current level ends, or null if paused
+
+// Default blind ladder used when the host grows the level table (mirrors the
+// server's DEFAULT_TOURNAMENT_LEVELS).
+const DEFAULT_LEVELS = [
+  [10, 20], [15, 30], [20, 40], [25, 50], [50, 100],
+  [75, 150], [100, 200], [150, 300], [200, 400], [300, 600],
+  [400, 800], [500, 1000], [700, 1400], [1000, 2000], [1500, 3000],
+  [2000, 4000], [3000, 6000], [4000, 8000], [5000, 10000], [7500, 15000],
+];
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +37,30 @@ setInterval(() => {
   const left = Math.max(0, Math.ceil((actorDeadline - Date.now()) / 1000));
   el.textContent = "⏱ " + left + "초";
   el.classList.toggle("urgent", left <= 5);
+}, 250);
+
+// Tournament blind clock in the top bar. The server tells us the current level
+// and how many seconds are left; we count down locally while it is running.
+setInterval(() => {
+  const el = $("tourney-label");
+  if (!el) return;
+  if (!curTourney || !curTourney.enabled) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  let txt = `🏆 레벨 ${curTourney.level}/${curTourney.total_levels} · 블라인드 ${curTourney.sb}/${curTourney.bb}`;
+  if (curTourney.is_last) {
+    txt += " · 최종 레벨";
+  } else if (levelDeadline != null) {
+    const left = Math.max(0, Math.round((levelDeadline - Date.now()) / 1000));
+    const m = Math.floor(left / 60), s = left % 60;
+    txt += ` · 다음 ${m}:${String(s).padStart(2, "0")}`;
+  } else if (curTourney.time_left != null) {
+    const left = Math.round(curTourney.time_left);
+    const m = Math.floor(left / 60), s = left % 60;
+    txt += ` · ⏸ ${m}:${String(s).padStart(2, "0")}`;
+  } else {
+    txt += " · 대기 중";
+  }
+  el.textContent = txt;
 }, 250);
 
 // ---- Join -----------------------------------------------------------------
@@ -75,7 +110,7 @@ $("deal-btn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
 // ---- Modals (settings + leaderboard) --------------------------------------
 function openModal(id) { $(id).classList.remove("hidden"); }
 function closeModal(id) { $(id).classList.add("hidden"); }
-$("settings-btn").onclick = () => { renderSettings(); openModal("settings-modal"); };
+$("settings-btn").onclick = () => { renderSettings(); initTournamentEditor(); openModal("settings-modal"); };
 $("board-btn").onclick = () => { renderBoard(); openModal("board-modal"); };
 $("replay-btn").onclick = () => {
   ws.send(JSON.stringify({ type: "list_replays" }));   // refresh from server/DB
@@ -109,6 +144,75 @@ $("apply-timeout").onclick = () =>
   ws.send(JSON.stringify({
     type: "set_timeout",
     amount: parseInt($("timeout-input").value, 10),
+  }));
+
+// ---- Tournament setup editor ----------------------------------------------
+// The editor is a draft form: it loads the current server config when the
+// settings modal opens, the host edits it freely (state updates won't clobber
+// it), then "적용" sends the whole config to the server.
+function initTournamentEditor() {
+  if (!state) return;
+  const t = state.tournament || {};
+  $("tourney-enabled").checked = !!t.enabled;
+  $("tourney-minutes").value = t.minutes || 15;
+  const levels = (t.levels && t.levels.length) ? t.levels : DEFAULT_LEVELS.slice();
+  $("tourney-count").value = levels.length;
+  renderTourneyLevels(levels);
+}
+
+function renderTourneyLevels(levels) {
+  const box = $("tourney-levels");
+  box.innerHTML = "";
+  const isHost = state && state.host === myId;
+  levels.forEach((lv, i) => {
+    const row = document.createElement("div");
+    row.className = "tl-row";
+    const lab = document.createElement("span");
+    lab.className = "tl-lab";
+    lab.textContent = "Lv " + (i + 1);
+    const sb = document.createElement("input");
+    sb.type = "number"; sb.min = "0"; sb.value = lv[0];
+    sb.id = "tl-sb-" + i; sb.disabled = !isHost;
+    const sep = document.createElement("span");
+    sep.className = "tl-sep"; sep.textContent = "/";
+    const bb = document.createElement("input");
+    bb.type = "number"; bb.min = "1"; bb.value = lv[1];
+    bb.id = "tl-bb-" + i; bb.disabled = !isHost;
+    row.append(lab, sb, sep, bb);
+    box.appendChild(row);
+  });
+}
+
+// Read whatever rows are currently shown into a [[sb,bb], ...] array.
+function readShownLevels() {
+  const out = [];
+  for (let i = 0; ; i++) {
+    const sbEl = $("tl-sb-" + i), bbEl = $("tl-bb-" + i);
+    if (!sbEl || !bbEl) break;
+    out.push([parseInt(sbEl.value, 10) || 0, parseInt(bbEl.value, 10) || 1]);
+  }
+  return out;
+}
+
+// Changing the level count keeps existing rows and fills new ones from the
+// default ladder.
+$("tourney-count").onchange = () => {
+  let count = Math.max(1, Math.min(20, parseInt($("tourney-count").value, 10) || 1));
+  $("tourney-count").value = count;
+  const cur = readShownLevels();
+  const next = [];
+  for (let i = 0; i < count; i++) {
+    next.push(cur[i] || DEFAULT_LEVELS[Math.min(i, DEFAULT_LEVELS.length - 1)].slice());
+  }
+  renderTourneyLevels(next);
+};
+
+$("apply-tournament").onclick = () =>
+  ws.send(JSON.stringify({
+    type: "set_tournament",
+    enabled: $("tourney-enabled").checked,
+    minutes: parseInt($("tourney-minutes").value, 10),
+    levels: readShownLevels(),
   }));
 
 // Start/pause continuous dealing (host only). Handler is wired in render().
@@ -218,6 +322,15 @@ function render() {
     actorDeadline = null;
   }
 
+  // Tournament clock: track the level deadline locally only while it is running
+  // (when paused we just show the frozen remaining time, no ticking).
+  curTourney = state.tournament || null;
+  if (curTourney && curTourney.enabled && curTourney.running && curTourney.time_left != null) {
+    levelDeadline = Date.now() + curTourney.time_left * 1000;
+  } else {
+    levelDeadline = null;
+  }
+
   // Keep open modals in sync with fresh state.
   if (!$("settings-modal").classList.contains("hidden")) renderSettings();
   if (!$("board-modal").classList.contains("hidden")) renderBoard();
@@ -293,7 +406,7 @@ function renderSeats() {
     plate.className = "nameplate";
     // Host can click a seat to jump straight to that player's stack settings.
     if (state.host === myId) {
-      plate.onclick = () => { renderSettings(); openModal("settings-modal"); };
+      plate.onclick = () => { renderSettings(); initTournamentEditor(); openModal("settings-modal"); };
     }
     const isButton = p.id === state.button;
     const isHost = p.id === state.host;
@@ -389,9 +502,17 @@ function renderSettings() {
   set("bb-input", state.big_blind);
   set("default-stack-input", state.starting_chips);
   set("timeout-input", state.action_timeout);
-  ["apply-blinds", "apply-default-stack", "apply-timeout"].forEach(
+  // In tournament mode the blind schedule owns the blinds, so lock the manual
+  // SB/BB fields and show a note explaining why.
+  const tourneyOn = !!(state.tournament && state.tournament.enabled);
+  $("blinds-tourney-note").classList.toggle("hidden", !tourneyOn);
+  ["apply-default-stack", "apply-timeout"].forEach(
     (id) => ($(id).disabled = !isHost));
-  ["sb-input", "bb-input", "default-stack-input", "timeout-input"].forEach(
+  ["default-stack-input", "timeout-input"].forEach(
+    (id) => ($(id).disabled = !isHost));
+  ["apply-blinds", "sb-input", "bb-input"].forEach(
+    (id) => ($(id).disabled = !isHost || tourneyOn));
+  ["tourney-enabled", "tourney-minutes", "tourney-count", "apply-tournament"].forEach(
     (id) => ($(id).disabled = !isHost));
 
   // Per-player stack adjust rows.

@@ -28,6 +28,7 @@
     <header class="topbar">
       <span id="room-label"></span>
       <span id="blinds-label"></span>
+      <span id="tourney-label" class="hidden"></span>
       <span id="phase-label"></span>
       <span class="topbar-spacer"></span>
       <button id="rebuy-btn" class="small accent hidden">💰 리바이</button>
@@ -104,6 +105,21 @@
           <label>BB <input id="bb-input" type="number" min="1" /></label>
           <button id="apply-blinds" class="mini-btn host-only">적용</button>
         </div>
+        <p id="blinds-tourney-note" class="modal-note hidden">토너먼트 모드에서는 블라인드가 레벨 스케줄을 따릅니다.</p>
+      </section>
+
+      <section class="settings-section">
+        <h3>🏆 토너먼트 모드 <span class="muted">(블라인드 자동 상승)</span></h3>
+        <label class="check-row"><input id="tourney-enabled" type="checkbox" /> 토너먼트 모드 사용</label>
+        <div class="field-row" style="margin-top:10px;">
+          <label>레벨 시간 <input id="tourney-minutes" type="number" min="10" max="40" /> 분</label>
+          <label>레벨 수 <input id="tourney-count" type="number" min="1" max="20" /></label>
+        </div>
+        <div id="tourney-levels" class="tourney-levels"></div>
+        <div class="field-row" style="margin-top:10px;">
+          <button id="apply-tournament" class="mini-btn host-only">토너먼트 설정 적용</button>
+        </div>
+        <p class="modal-note">레벨 시간이 지나면 다음 레벨 블라인드로 자동 상승합니다 (다음 핸드부터). 게임을 멈추면 레벨 시계도 멈춥니다. 마지막 레벨에 도달하면 그 블라인드로 유지됩니다.</p>
       </section>
 
       <section class="settings-section">
