@@ -26,6 +26,7 @@ except ImportError:           # local dev without the driver installed
 
 _pool = None
 _last_error = None       # why init failed last time (shown at /health)
+_diag = {}               # resolution diagnostics (shown at /health)
 
 
 def status() -> dict:
@@ -34,8 +35,10 @@ def status() -> dict:
         "db": _pool is not None,
         "persistence": "postgresql" if _pool is not None else "in-memory",
         "driver_installed": psycopg is not None,
+        "psycopg_version": getattr(psycopg, "__version__", None),
         "url_present": bool(os.environ.get("DATABASE_URL")),
         "error": _last_error,
+        "diag": _diag,
     }
 
 
@@ -65,12 +68,16 @@ def _conninfo(url: str) -> str:
     if host:
         try:
             infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+            all_ips = [i[4][0] for i in infos]
             ipv4 = [i[4][0] for i in infos if i[0] == socket.AF_INET]
-            ip = ipv4[0] if ipv4 else (infos[0][4][0] if infos else None)
+            ip = ipv4[0] if ipv4 else (all_ips[0] if all_ips else None)
+            _diag["resolved"] = all_ips
             if ip:
                 params["hostaddr"] = ip
-        except Exception:
-            pass
+                _diag["hostaddr"] = ip
+        except Exception as e:
+            _diag["resolve_error"] = repr(e)
+    _diag["conninfo_keys"] = sorted(k for k in params if k != "password")
     return psycopg.conninfo.make_conninfo(**params)
 
 
