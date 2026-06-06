@@ -120,9 +120,9 @@ button.small {
 }
 .pot {
   margin-top: 10px;
-  font-size: 16px;
+  font-size: 24px;
   color: var(--gold);
-  font-weight: 700;
+  font-weight: 800;
 }
 .status { margin-top: 4px; font-size: 13px; color: #d8e8de; min-height: 18px; }
 .turn-timer { margin-top: 2px; font-size: 14px; font-weight: 700; color: #ffe9a8; min-height: 18px; }
@@ -206,7 +206,7 @@ button.small {
   font-size: 13px;
 }
 .nameplate .pname { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nameplate .pchips { color: var(--gold); font-size: 12px; }
+.nameplate .pchips { color: var(--gold); font-size: 17px; font-weight: 700; }
 .seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 14px var(--gold); }
 .seat.folded { opacity: 0.4; }
 .seat.sitting .nameplate { border-style: dashed; opacity: 0.85; }
@@ -217,7 +217,8 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 .seat.me .nameplate { background: #1c3a28; }
 .seat .pbet {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 17px;
+  font-weight: 700;
   color: #ffe9a8;
   min-height: 16px;
 }

@@ -31,7 +31,7 @@ NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the nex
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v15-reconnect"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v16-pause"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -86,6 +86,7 @@ class Room:
         self.auto_running = False          # is the table continuously dealing?
         self.timeout_seconds = DEFAULT_TIMEOUT
         self.action_deadline: float | None = None   # monotonic time the current actor must act by
+        self.action_remaining: float | None = None  # frozen seconds left while paused
         self.next_hand_at: float | None = None      # monotonic time to deal the next hand
         self.loop_task: asyncio.Task | None = None   # background ticker
         self.persisted_count = 0                     # hands already written to the DB
@@ -124,11 +125,26 @@ class Room:
 
     def arm_timer(self):
         """(Re)start the action clock for whoever is currently to act."""
+        self.action_remaining = None
         g = self.game
         if g.hand_in_progress and g.to_act is not None:
             self.action_deadline = self._now() + self.timeout_seconds
         else:
             self.action_deadline = None
+
+    def pause_action_timer(self):
+        """Freeze the current actor's clock so a pause really stops the time."""
+        if self.action_deadline is not None:
+            self.action_remaining = max(0.0, self.action_deadline - self._now())
+            self.action_deadline = None
+
+    def resume_action_timer(self):
+        """Restore the frozen action clock when the table resumes."""
+        g = self.game
+        if (g.hand_in_progress and g.to_act is not None
+                and self.action_remaining is not None):
+            self.action_deadline = self._now() + self.action_remaining
+        self.action_remaining = None
 
     def ensure_loop(self):
         if self.loop_task is None or self.loop_task.done():
@@ -140,6 +156,7 @@ class Room:
         self.loop_task = None
         self.auto_running = False
         self.action_deadline = None
+        self.action_remaining = None
         self.next_hand_at = None
 
     # ---- disconnect / reconnect ----------------------------------------------
@@ -346,11 +363,14 @@ class Room:
         public["db"] = db.enabled()
         public["version"] = APP_VERSION
         public["tournament"] = self.tournament_state()
-        # Seconds left for the current actor (clients run their own countdown from this).
+        # Seconds left for the current actor (clients run their own countdown from
+        # this). While paused we send the frozen remaining so it shows but doesn't tick.
         time_left = None
-        if (self.action_deadline is not None and self.game.hand_in_progress
-                and self.game.to_act is not None):
-            time_left = max(0.0, self.action_deadline - self._now())
+        if self.game.hand_in_progress and self.game.to_act is not None:
+            if self.action_deadline is not None:
+                time_left = max(0.0, self.action_deadline - self._now())
+            elif self.action_remaining is not None:
+                time_left = self.action_remaining
         public["time_left"] = time_left
         dead = []
         for ws, pid in self.connections.items():
@@ -463,6 +483,8 @@ async def websocket_endpoint(ws: WebSocket):
                         if not room.game.hand_in_progress and room.game.can_start():
                             room.game.start_hand()
                             room.arm_timer()
+                        else:
+                            room.resume_action_timer()  # un-freeze a paused mid-hand
                     await room.broadcast()
 
             elif mtype == "pause" and room:
@@ -471,23 +493,28 @@ async def websocket_endpoint(ws: WebSocket):
                                         "message": "방장만 게임을 멈출 수 있습니다."})
                 else:
                     async with room.lock:
-                        room.auto_running = False      # current hand finishes, then stop
+                        room.auto_running = False      # pause: freeze the hand + clocks
                         room.next_hand_at = None
+                        room.pause_action_timer()
                         if room.tournament:
                             room.pause_tournament_clock()
                     await room.broadcast()
 
             elif mtype == "action" and room and pid:
-                action = msg.get("action")
-                amount = int(msg.get("amount") or 0)
-                async with room.lock:
-                    err = room.game.act(pid, action, amount)
-                    if not err:
-                        room.arm_timer()    # reset the clock for the next actor
-                if err:
-                    await ws.send_json({"type": "error", "message": err})
-                await room.broadcast()
-                await room.persist_new_hands()
+                if not room.auto_running and room.game.hand_in_progress:
+                    await ws.send_json({"type": "error",
+                                        "message": "게임이 일시정지되었습니다. 방장이 재개하면 진행됩니다."})
+                else:
+                    action = msg.get("action")
+                    amount = int(msg.get("amount") or 0)
+                    async with room.lock:
+                        err = room.game.act(pid, action, amount)
+                        if not err:
+                            room.arm_timer()    # reset the clock for the next actor
+                    if err:
+                        await ws.send_json({"type": "error", "message": err})
+                    await room.broadcast()
+                    await room.persist_new_hands()
 
             elif mtype == "list_replays" and room:
                 if db.enabled():

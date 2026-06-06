@@ -17,6 +17,7 @@ let showPositions = localStorage.getItem("showPositions") !== "0";  // personal 
 let curTourney = null;     // last tournament state (for the top-bar clock)
 let levelDeadline = null;  // local wall-clock (ms) when the current level ends, or null if paused
 let timeoutTotal = 30;     // server's per-action time limit, for the countdown gauge
+let pausedTimeLeft = null;  // frozen seconds left to show while the table is paused
 
 // Default blind ladder used when the host grows the level table (mirrors the
 // server's DEFAULT_TOURNAMENT_LEVELS).
@@ -36,15 +37,16 @@ setInterval(() => {
   const bar = $("turn-bar");
   const fill = $("turn-bar-fill");
   if (!el) return;
-  if (actorDeadline == null) {
+  const paused = actorDeadline == null && pausedTimeLeft != null;
+  if (actorDeadline == null && !paused) {
     el.textContent = ""; el.classList.remove("urgent");
     if (bar) bar.classList.add("hidden");
     return;
   }
-  const remain = Math.max(0, (actorDeadline - Date.now()) / 1000);
+  const remain = paused ? pausedTimeLeft : Math.max(0, (actorDeadline - Date.now()) / 1000);
   const left = Math.ceil(remain);
-  el.textContent = "⏱ " + left + "초";
-  const urgent = left <= 5;
+  el.textContent = paused ? ("⏸ " + left + "초 (일시정지)") : ("⏱ " + left + "초");
+  const urgent = !paused && left <= 5;
   el.classList.toggle("urgent", urgent);
   if (bar && fill) {
     bar.classList.remove("hidden");
@@ -431,12 +433,20 @@ function render() {
   $("sit-btn").classList.toggle("accent", sittingOut);
   $("rebuy-btn").classList.toggle("hidden", !(priv && priv.can_rebuy));
 
-  // Set the local countdown deadline from the server's "seconds left".
+  // Set the local countdown deadline from the server's "seconds left". While the
+  // table is paused we freeze it (show the number, don't tick down).
   if (state.action_timeout) timeoutTotal = state.action_timeout;
   if (state.hand_in_progress && state.to_act && state.time_left != null) {
-    actorDeadline = Date.now() + state.time_left * 1000;
+    if (state.auto_running) {
+      actorDeadline = Date.now() + state.time_left * 1000;
+      pausedTimeLeft = null;
+    } else {
+      actorDeadline = null;
+      pausedTimeLeft = state.time_left;
+    }
   } else {
     actorDeadline = null;
+    pausedTimeLeft = null;
   }
 
   // Tournament clock: track the level deadline locally only while it is running
@@ -471,6 +481,8 @@ function render() {
     $("status").textContent = "🏆 " + txt;
   } else if (!state.hand_in_progress) {
     $("status").textContent = "딜을 기다리는 중...";
+  } else if (!state.auto_running) {
+    $("status").textContent = "⏸ 일시정지 — 방장이 재개하면 이어서 진행됩니다.";
   } else {
     const actor = state.players.find((p) => p.id === state.to_act);
     $("status").textContent = actor ? `${actor.name} 차례` : "";
@@ -598,7 +610,7 @@ function renderControls() {
     hint.textContent = "방장이 게임을 시작하기를 기다리는 중...";
   }
 
-  const myTurn = priv && priv.your_turn && priv.legal;
+  const myTurn = priv && priv.your_turn && priv.legal && state.auto_running;
   actionBar.classList.toggle("hidden", !myTurn);
   if (!myTurn) return;
 
