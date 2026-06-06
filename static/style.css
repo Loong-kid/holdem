@@ -182,14 +182,11 @@ button.small {
   text-align: center;
 }
 .seat .player-cards { display: flex; gap: 4px; justify-content: center; min-height: 82px; margin-bottom: 4px; }
-/* Omaha: 4 hole cards must fit the same seat width, so shrink them. */
-.player-cards.four { gap: 2px; }
-.player-cards.four .card.small { width: 30px; height: 44px; border-radius: 4px; }
-.player-cards.four .card.small .corner-top .r,
-.player-cards.four .card.small .corner-bottom .r { font-size: 12px; }
-.player-cards.four .card.small .corner-top .s,
-.player-cards.four .card.small .corner-bottom .s { font-size: 9px; }
-.player-cards.four .card.small .pip { font-size: 20px; }
+/* Omaha: keep the 4 hole cards the SAME size as Hold'em, but fan them with a
+   slight overlap so they still fit the seat width. Each card's top-left rank +
+   suit stays visible (later cards paint on top), just like a real poker hand. */
+.player-cards.four { gap: 0; }
+.player-cards.four .card.small:not(:last-child) { margin-right: -34px; }
 .nameplate {
   background: #122318;
   border: 1px solid #3c5c48;
@@ -501,13 +498,8 @@ body.not-host .host-only { display: none !important; }
   .card.small .pip { font-size: 22px; }
   .nameplate { padding: 4px 5px; font-size: 11px; border-radius: 8px; }
   .nameplate .pchips { font-size: 11px; }
-  /* Omaha 4 hole cards on a narrow phone seat. */
-  .player-cards.four .card.small { width: 22px; height: 32px; }
-  .player-cards.four .card.small .corner-top .r,
-  .player-cards.four .card.small .corner-bottom .r { font-size: 9px; }
-  .player-cards.four .card.small .corner-top .s,
-  .player-cards.four .card.small .corner-bottom .s { font-size: 7px; }
-  .player-cards.four .card.small .pip { font-size: 14px; }
+  /* Omaha on a phone: same size as Hold'em hole cards, just a tighter fan. */
+  .player-cards.four .card.small:not(:last-child) { margin-right: -13px; }
   .seat .pbet { font-size: 11px; margin-top: 2px; }
   .seat .paction { font-size: 10px; }
 
