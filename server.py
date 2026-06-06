@@ -35,7 +35,7 @@ MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     on = await db.init()
-    print("Hand persistence:", "PostgreSQL" if on else "in-memory only")
+    print("Hand persistence:", "PostgreSQL" if on else "in-memory only", flush=True)
     yield
     await db.close()
 
@@ -225,6 +225,13 @@ manager = RoomManager()
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/health")
+async def health():
+    """Quick check of whether replay persistence is wired to a database."""
+    return {"db": db.enabled(),
+            "persistence": "postgresql" if db.enabled() else "in-memory"}
 
 
 @app.websocket("/ws")

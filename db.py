@@ -43,7 +43,7 @@ async def init():
             )
         return True
     except Exception as e:           # bad URL / unreachable -> fall back to memory
-        print("DB init failed, using in-memory storage:", e)
+        print("DB init failed, using in-memory storage:", repr(e), flush=True)
         _pool = None
         return False
 
