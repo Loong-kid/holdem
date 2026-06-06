@@ -1,19 +1,24 @@
-"""Optional PostgreSQL persistence for hand replays.
+"""Optional PostgreSQL persistence for hand replays (via psycopg 3).
 
 The whole module is a no-op unless a DATABASE_URL environment variable is set
-(Render injects this when you link a Postgres instance). That way the app runs
-exactly as before locally with in-memory storage, and automatically persists in
-the cloud. A finished hand is stored as one row with its events in a JSONB column.
+(Render injects this when you link a Postgres instance). Locally, with no URL,
+the app keeps everything in memory exactly as before.
+
+We use psycopg (libpq-based) rather than asyncpg because it connects cleanly to
+managed providers like Supabase's connection pooler, and we build the connection
+info from keyword fields so special characters in the password are never a problem.
 """
 
-import json
 import os
 from urllib.parse import unquote, urlsplit
 
 try:
-    import asyncpg
+    import psycopg
+    from psycopg.types.json import Jsonb
+    from psycopg_pool import AsyncConnectionPool
 except ImportError:           # local dev without the driver installed
-    asyncpg = None
+    psycopg = None
+    AsyncConnectionPool = None
 
 _pool = None
 _last_error = None       # why init failed last time (shown at /health)
@@ -24,45 +29,30 @@ def status() -> dict:
     return {
         "db": _pool is not None,
         "persistence": "postgresql" if _pool is not None else "in-memory",
-        "driver_installed": asyncpg is not None,
+        "driver_installed": psycopg is not None,
         "url_present": bool(os.environ.get("DATABASE_URL")),
         "error": _last_error,
     }
 
 
-def _conn_kwargs(url: str) -> dict:
-    """Split a DATABASE_URL into explicit asyncpg arguments.
+def _conninfo(url: str) -> str:
+    """Turn a DATABASE_URL into a libpq keyword conninfo string.
 
-    We parse it ourselves (instead of letting asyncpg parse the DSN) so that
-    special characters in the password - like '!' - don't trip up the parser.
+    Parsing it into explicit fields (instead of feeding the raw URL to the
+    driver) means special characters in the password never need URL-encoding.
     """
     p = urlsplit(url)
-    return {
-        "user": unquote(p.username) if p.username else None,
-        "password": unquote(p.password) if p.password else None,
+    params = {
         "host": p.hostname,
         "port": p.port or 5432,
-        "database": (p.path or "/postgres").lstrip("/") or "postgres",
+        "dbname": (p.path or "/postgres").lstrip("/") or "postgres",
+        "sslmode": "require",
     }
-
-
-async def _make_pool(url):
-    """Create the pool, retrying with SSL for managed providers (Supabase etc.).
-
-    statement_cache_size=0 keeps us compatible with connection poolers (pgbouncer)
-    that Supabase and others put in front of Postgres.
-    """
-    kw = _conn_kwargs(url)
-    try:
-        return await asyncpg.create_pool(
-            min_size=1, max_size=5, statement_cache_size=0, **kw)
-    except Exception:
-        # Managed providers (Supabase, etc.) require SSL. Using the 'require'
-        # string lets asyncpg build and manage the TLS connection itself
-        # (encrypt without CA verification, correct SNI) - passing a hand-built
-        # SSLContext tripped asyncpg's hostname handling.
-        return await asyncpg.create_pool(
-            min_size=1, max_size=5, statement_cache_size=0, ssl="require", **kw)
+    if p.username:
+        params["user"] = unquote(p.username)
+    if p.password:
+        params["password"] = unquote(p.password)
+    return psycopg.conninfo.make_conninfo(**params)
 
 
 async def init():
@@ -70,15 +60,16 @@ async def init():
     global _pool, _last_error
     _last_error = None
     url = os.environ.get("DATABASE_URL")
-    if asyncpg is None:
-        _last_error = "asyncpg driver not installed"
+    if psycopg is None or AsyncConnectionPool is None:
+        _last_error = "psycopg driver not installed"
         return False
     if not url:
         _last_error = "DATABASE_URL not set"
         return False
     try:
-        _pool = await _make_pool(url)
-        async with _pool.acquire() as con:
+        pool = AsyncConnectionPool(_conninfo(url), min_size=1, max_size=5, open=False)
+        await pool.open(wait=True, timeout=15)
+        async with pool.connection() as con:
             await con.execute(
                 """
                 CREATE TABLE IF NOT EXISTS hands (
@@ -94,6 +85,7 @@ async def init():
             await con.execute(
                 "CREATE INDEX IF NOT EXISTS idx_hands_room ON hands (room, id DESC)"
             )
+        _pool = pool
         return True
     except Exception as e:           # bad URL / unreachable -> fall back to memory
         _last_error = repr(e)
@@ -116,11 +108,11 @@ def enabled() -> bool:
 async def save_hand(room: str, number: int, title: str, events: list):
     if not _pool:
         return
-    async with _pool.acquire() as con:
+    async with _pool.connection() as con:
         await con.execute(
             "INSERT INTO hands (room, hand_number, title, events) "
-            "VALUES ($1, $2, $3, $4::jsonb)",
-            room, number, title, json.dumps(events),
+            "VALUES (%s, %s, %s, %s)",
+            (room, number, title, Jsonb(events)),
         )
 
 
@@ -128,24 +120,24 @@ async def list_hands(room: str, limit: int = 30) -> list[dict]:
     """Most recent hands first: [{number(=db id), title}, ...]."""
     if not _pool:
         return []
-    async with _pool.acquire() as con:
-        rows = await con.fetch(
-            "SELECT id, title FROM hands WHERE room = $1 ORDER BY id DESC LIMIT $2",
-            room, limit,
+    async with _pool.connection() as con:
+        cur = await con.execute(
+            "SELECT id, title FROM hands WHERE room = %s ORDER BY id DESC LIMIT %s",
+            (room, limit),
         )
-    return [{"number": r["id"], "title": r["title"]} for r in rows]
+        rows = await cur.fetchall()
+    return [{"number": r[0], "title": r[1]} for r in rows]
 
 
 async def get_hand(room: str, hand_id: int) -> dict | None:
     if not _pool:
         return None
-    async with _pool.acquire() as con:
-        row = await con.fetchrow(
-            "SELECT id, events FROM hands WHERE id = $1 AND room = $2", hand_id, room
+    async with _pool.connection() as con:
+        cur = await con.execute(
+            "SELECT id, events FROM hands WHERE id = %s AND room = %s",
+            (hand_id, room),
         )
+        row = await cur.fetchone()
     if not row:
         return None
-    events = row["events"]
-    if isinstance(events, str):       # asyncpg returns jsonb as text
-        events = json.loads(events)
-    return {"number": row["id"], "events": events}
+    return {"number": row[0], "events": row[1]}   # psycopg returns jsonb as Python objects
