@@ -12,6 +12,7 @@ let priv = null;      // last private state (my hole cards + legal moves)
 let actorDeadline = null;  // local wall-clock (ms) when the current actor's time runs out
 let replayFrames = [];     // step-by-step snapshots of the hand being reviewed
 let replayIndex = 0;
+let replayList = [];       // [{number, title}] fetched on demand
 let showPositions = localStorage.getItem("showPositions") !== "0";  // personal display toggle
 
 const $ = (id) => document.getElementById(id);
@@ -51,6 +52,9 @@ function connect(name, room) {
       state = msg.public;
       priv = msg.private;
       render();
+    } else if (msg.type === "replays") {
+      replayList = msg.list || [];
+      renderReplayList();
     } else if (msg.type === "replay") {
       if (msg.record) {
         replayFrames = buildReplayFrames(msg.record);
@@ -73,7 +77,11 @@ function openModal(id) { $(id).classList.remove("hidden"); }
 function closeModal(id) { $(id).classList.add("hidden"); }
 $("settings-btn").onclick = () => { renderSettings(); openModal("settings-modal"); };
 $("board-btn").onclick = () => { renderBoard(); openModal("board-modal"); };
-$("replay-btn").onclick = () => { renderReplayList(); openModal("replay-modal"); };
+$("replay-btn").onclick = () => {
+  ws.send(JSON.stringify({ type: "list_replays" }));   // refresh from server/DB
+  renderReplayList();
+  openModal("replay-modal");
+};
 document.querySelectorAll(".modal-close").forEach(
   (b) => (b.onclick = () => closeModal(b.dataset.close)));
 // Click outside the box closes the modal.
@@ -442,7 +450,7 @@ $("replay-next").onclick = () => { replayIndex++; renderReplayFrame(); };
 function renderReplayList() {
   const box = $("replay-list");
   box.innerHTML = "";
-  const items = (state && state.replays) || [];
+  const items = replayList;
   if (!items.length) {
     box.innerHTML = '<p class="muted">아직 기록된 핸드가 없습니다.</p>';
     return;

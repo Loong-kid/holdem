@@ -22,6 +22,23 @@ from .evaluator import best_hand, describe
 
 # Position names by number of players in the hand, listed in seat order from the
 # small blind around to the button. Matches common 2- to 9-handed conventions.
+def summarize_hand(record: dict) -> str:
+    """A short human title for a finished hand, e.g. '#3  Bob +60 (Straight)'."""
+    result = next((e for e in record["events"] if e["type"] == "result"), None)
+    title = f"#{record['number']}"
+    if result and result["winners"]:
+        w = result["winners"][0]
+        title = f"#{record['number']}  {w['name']} +{w['amount']}"
+        if result.get("showdown"):
+            hand = next((r["hand"] for r in result["reveals"]
+                         if r["name"] == w["name"]), "")
+            if hand:
+                title += f" ({hand})"
+        else:
+            title += " (무쇼다운)"
+    return title
+
+
 POSITION_NAMES = {
     2: ["SB", "BB"],
     3: ["SB", "BB", "BTN"],
@@ -574,21 +591,8 @@ class Game:
 
     def replay_list(self) -> list[dict]:
         """Compact list of recent hands for the replay menu (newest first)."""
-        out = []
-        for rec in self.hand_log[-30:]:
-            result = next((e for e in rec["events"] if e["type"] == "result"), None)
-            title = f"#{rec['number']}"
-            if result and result["winners"]:
-                w = result["winners"][0]
-                title = f"#{rec['number']}  {w['name']} +{w['amount']}"
-                if result.get("showdown"):
-                    hand = next((r["hand"] for r in result["reveals"]
-                                 if r["name"] == w["name"]), "")
-                    if hand:
-                        title += f" ({hand})"
-                else:
-                    title += " (무쇼다운)"
-            out.append({"number": rec["number"], "title": title})
+        out = [{"number": rec["number"], "title": summarize_hand(rec)}
+               for rec in self.hand_log[-30:]]
         out.reverse()
         return out
 

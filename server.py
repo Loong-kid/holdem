@@ -14,13 +14,15 @@ their own hole cards, so nobody can peek at someone else's hand.
 
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from poker.game import Game
+import db
+from poker.game import Game, summarize_hand
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -29,7 +31,16 @@ NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the nex
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    on = await db.init()
+    print("Hand persistence:", "PostgreSQL" if on else "in-memory only")
+    yield
+    await db.close()
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 class Room:
@@ -58,6 +69,21 @@ class Room:
         self.action_deadline: float | None = None   # monotonic time the current actor must act by
         self.next_hand_at: float | None = None      # monotonic time to deal the next hand
         self.loop_task: asyncio.Task | None = None   # background ticker
+        self.persisted_count = 0                     # hands already written to the DB
+
+    async def persist_new_hands(self):
+        """Write any newly-finished hands to the database (no-op without a DB)."""
+        if not db.enabled():
+            return
+        while self.persisted_count < self.game.hand_count:
+            self.persisted_count += 1
+            n = self.persisted_count
+            rec = next((r for r in self.game.hand_log if r["number"] == n), None)
+            if rec:
+                try:
+                    await db.save_hand(self.id, n, summarize_hand(rec), rec["events"])
+                except Exception as e:
+                    print("save_hand failed:", e)
 
     # ---- timing engine --------------------------------------------------------
 
@@ -130,6 +156,7 @@ class Room:
                     changed = self._tick()
                 if changed:
                     await self.broadcast()
+                    await self.persist_new_hands()
         except asyncio.CancelledError:
             pass
 
@@ -160,7 +187,7 @@ class Room:
         public["auto_running"] = self.auto_running
         public["action_timeout"] = self.timeout_seconds
         public["chat"] = self.chat[-60:]
-        public["replays"] = self.game.replay_list()
+        public["db"] = db.enabled()
         # Seconds left for the current actor (clients run their own countdown from this).
         time_left = None
         if (self.action_deadline is not None and self.game.hand_in_progress
@@ -277,10 +304,21 @@ async def websocket_endpoint(ws: WebSocket):
                 if err:
                     await ws.send_json({"type": "error", "message": err})
                 await room.broadcast()
+                await room.persist_new_hands()
+
+            elif mtype == "list_replays" and room:
+                if db.enabled():
+                    lst = await db.list_hands(room.id)
+                else:
+                    lst = room.game.replay_list()
+                await ws.send_json({"type": "replays", "list": lst})
 
             elif mtype == "get_replay" and room:
                 num = int(msg.get("number") or 0)
-                rec = room.game.get_replay(num)
+                if db.enabled():
+                    rec = await db.get_hand(room.id, num)
+                else:
+                    rec = room.game.get_replay(num)
                 await ws.send_json({"type": "replay", "record": rec})
 
             elif mtype == "chat" and room and pid:
