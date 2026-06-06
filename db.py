@@ -8,7 +8,6 @@ the cloud. A finished hand is stored as one row with its events in a JSONB colum
 
 import json
 import os
-import ssl
 from urllib.parse import unquote, urlsplit
 
 try:
@@ -46,11 +45,12 @@ async def _make_pool(url):
         return await asyncpg.create_pool(
             min_size=1, max_size=5, statement_cache_size=0, **kw)
     except Exception:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
+        # Managed providers (Supabase, etc.) require SSL. Using the 'require'
+        # string lets asyncpg build and manage the TLS connection itself
+        # (encrypt without CA verification, correct SNI) - passing a hand-built
+        # SSLContext tripped asyncpg's hostname handling.
         return await asyncpg.create_pool(
-            min_size=1, max_size=5, statement_cache_size=0, ssl=ctx, **kw)
+            min_size=1, max_size=5, statement_cache_size=0, ssl="require", **kw)
 
 
 async def init():
