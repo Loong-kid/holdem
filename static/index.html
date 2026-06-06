@@ -55,14 +55,25 @@
       </div>
     </div>
 
+    <div id="hand-rank" class="hand-rank hidden"></div>
+
     <div id="action-bar" class="action-bar hidden">
       <button id="fold-btn" class="act fold">폴드</button>
       <button id="check-btn" class="act check">체크</button>
       <button id="call-btn" class="act call">콜</button>
       <div class="raise-group">
-        <input id="raise-slider" type="range" />
-        <input id="raise-amount" type="number" class="raise-input" />
-        <button id="raise-btn" class="act raise">레이즈</button>
+        <div class="bet-presets">
+          <button type="button" class="bet-preset" data-frac="0.25">¼</button>
+          <button type="button" class="bet-preset" data-frac="0.5">½</button>
+          <button type="button" class="bet-preset" data-frac="0.75">¾</button>
+          <button type="button" class="bet-preset" data-frac="1">팟</button>
+          <button type="button" class="bet-preset" data-frac="max">올인</button>
+        </div>
+        <div class="raise-controls">
+          <input id="raise-slider" type="range" />
+          <input id="raise-amount" type="number" class="raise-input" />
+          <button id="raise-btn" class="act raise">레이즈</button>
+        </div>
       </div>
     </div>
 

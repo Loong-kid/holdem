@@ -90,23 +90,24 @@ button.small {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: calc(100vh - 200px);
-  height: calc(100dvh - 200px);
+  height: calc(100vh - 180px);
+  height: calc(100dvh - 180px);
 }
 .table {
   position: relative;
-  width: 760px;
-  height: 420px;
+  width: 980px;
+  height: 560px;
   background: radial-gradient(ellipse at center, var(--felt), var(--felt-dark));
-  border: 14px solid #5a3a22;
-  border-radius: 210px;
+  border: 16px solid #5a3a22;
+  border-radius: 280px;
   box-shadow: inset 0 0 60px rgba(0,0,0,0.4), 0 14px 40px rgba(0,0,0,0.5);
 }
 .board {
   position: absolute;
-  top: 50%; left: 50%;
+  top: 46%; left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
+  z-index: 3;             /* keep pot/timer above the seats' cards */
 }
 .community { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 108px; }
 .board-row { display: flex; gap: 7px; justify-content: center; align-items: center; }
@@ -130,15 +131,15 @@ button.small {
 /* ---- Cards ---- */
 .card {
   position: relative;
-  width: 76px; height: 106px;
-  border-radius: 8px;
+  width: 92px; height: 128px;
+  border-radius: 9px;
   background: #fdfdfd;
   color: var(--ink);
   font-weight: 800;
   box-shadow: 0 2px 7px rgba(0,0,0,0.45);
   overflow: hidden;
 }
-.card.small { width: 58px; height: 82px; border-radius: 6px; }
+.card.small { width: 68px; height: 95px; border-radius: 7px; }
 /* Rank + suit hug the corners (top-left and bottom-right, mirrored). */
 .card .corner-top, .card .corner-bottom {
   position: absolute;
@@ -149,12 +150,12 @@ button.small {
 }
 .card .corner-top { top: 5px; left: 6px; }
 .card .corner-bottom { bottom: 5px; right: 6px; transform: rotate(180deg); }
-.card .corner-top .r, .card .corner-bottom .r { font-size: 24px; }
-.card .corner-top .s, .card .corner-bottom .s { font-size: 17px; }
-.card.small .corner-top { top: 3px; left: 4px; }
-.card.small .corner-bottom { bottom: 3px; right: 4px; }
-.card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 18px; }
-.card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 12px; }
+.card .corner-top .r, .card .corner-bottom .r { font-size: 28px; }
+.card .corner-top .s, .card .corner-bottom .s { font-size: 20px; }
+.card.small .corner-top { top: 3px; left: 5px; }
+.card.small .corner-bottom { bottom: 3px; right: 5px; }
+.card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 21px; }
+.card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 14px; }
 /* Faint big suit in the middle for a card-like look. */
 .card .pip {
   position: absolute;
@@ -162,10 +163,10 @@ button.small {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 46px;
-  opacity: 0.16;
+  font-size: 52px;
+  opacity: 0.95;          /* solid colour so the suit reads at a glance */
 }
-.card.small .pip { font-size: 34px; }
+.card.small .pip { font-size: 40px; }
 .card.red { color: #c81e2c; }
 .card.back {
   background: repeating-linear-gradient(45deg, #2a4d8f, #2a4d8f 7px, #1d376a 7px, #1d376a 14px);
@@ -177,16 +178,16 @@ button.small {
 #seats { position: absolute; inset: 0; }
 .seat {
   position: absolute;
-  width: 132px;
+  width: 160px;
   transform: translate(-50%, -50%);
   text-align: center;
 }
-.seat .player-cards { display: flex; gap: 4px; justify-content: center; min-height: 82px; margin-bottom: 4px; }
+.seat .player-cards { display: flex; gap: 5px; justify-content: center; min-height: 95px; margin-bottom: 4px; }
 /* Omaha: keep the 4 hole cards the SAME size as Hold'em, but fan them with a
    slight overlap so they still fit the seat width. Each card's top-left rank +
    suit stays visible (later cards paint on top), just like a real poker hand. */
 .player-cards.four { gap: 0; }
-.player-cards.four .card.small:not(:last-child) { margin-right: -34px; }
+.player-cards.four .card.small:not(:last-child) { margin-right: -40px; }
 .nameplate {
   background: #122318;
   border: 1px solid #3c5c48;
@@ -255,12 +256,32 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 .act.call { background: #3b8a5a; }
 .act.raise { background: #c9952f; color: #1a1a1a; }
 .act:disabled { opacity: 0.35; cursor: not-allowed; }
-.raise-group { display: flex; align-items: center; gap: 8px; }
+.raise-group { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.raise-controls { display: flex; align-items: center; gap: 8px; }
+.bet-presets { display: flex; gap: 6px; justify-content: center; }
+.bet-preset {
+  padding: 6px 13px; border-radius: 6px; border: 1px solid #3c5c48;
+  background: #1c3326; color: var(--gold); font-weight: 700; font-size: 14px; cursor: pointer;
+}
+.bet-preset:hover { background: #244232; }
 .raise-input {
   width: 80px; padding: 10px; border-radius: 8px; border: 1px solid #3c5c48;
   background: #122318; color: #fff; font-size: 15px;
 }
 #raise-slider { width: 160px; }
+
+/* Live "my hand" readout above the action bar. */
+.hand-rank {
+  text-align: center; padding: 6px 12px;
+  font-size: 16px; color: #ffe9a8;
+}
+.hand-rank b { color: #fff; font-weight: 800; }
+.hand-rank .hr-tag {
+  display: inline-block; width: 19px; height: 19px;
+  background: var(--gold); color: #1a1a1a; border-radius: 50%;
+  font-size: 11px; font-weight: 800; line-height: 19px; text-align: center;
+  margin-right: 5px; vertical-align: middle;
+}
 .waiting-bar { flex-direction: column; gap: 6px; }
 #deal-btn { width: 200px; }
 
@@ -510,8 +531,12 @@ body.not-host .host-only { display: none !important; }
   .action-bar { flex-wrap: wrap; gap: 8px; padding: 10px; }
   .act { padding: 13px 16px; font-size: 16px; flex: 1 1 auto; min-width: 70px; }
   .raise-group { flex: 1 1 100%; }
+  .raise-controls { width: 100%; }
   #raise-slider { flex: 1; width: auto; }
   .raise-input { width: 64px; }
+  .bet-presets { flex-wrap: wrap; width: 100%; }
+  .bet-preset { flex: 1 1 auto; padding: 7px 10px; font-size: 13px; }
+  .hand-rank { font-size: 13px; padding: 4px 8px; }
   .waiting-bar { padding: 8px; }
 
   /* Log + chat become bottom-sheet drawers, toggled from the top bar (📜 / 💬),

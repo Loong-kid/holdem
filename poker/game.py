@@ -18,7 +18,7 @@ logic simple.
 """
 
 from .cards import Deck, card_rank, RANK_NAME
-from .evaluator import best_hand, best_omaha, describe
+from .evaluator import best_hand, best_omaha, describe, describe_full
 
 # Variant definitions: how many hole cards each player gets and how many
 # community boards are dealt. The showdown uses Omaha rules (exactly 2+3) for any
@@ -608,7 +608,7 @@ class Game:
         for p in contenders:
             if payouts[p.id] > 0:
                 p.chips += payouts[p.id]
-                hand_desc = describe(board_scores[0][p.id]) if nb == 1 else ""
+                hand_desc = describe_full(board_scores[0][p.id]) if nb == 1 else ""
                 self.results.append({"id": p.id, "name": p.name,
                                      "amount": payouts[p.id], "hand": hand_desc})
 
@@ -619,7 +619,7 @@ class Game:
             for pid, amt in board_acc[b].items():
                 pl = self._player(pid)
                 bw.append({"name": pl.name, "amount": amt,
-                           "hand": describe(board_scores[b][pid])})
+                           "hand": describe_full(board_scores[b][pid])})
             bw.sort(key=lambda x: -x["amount"])
             self.board_winners.append(bw)
             label = f" 보드{b + 1}" if nb > 1 else ""
@@ -630,7 +630,7 @@ class Game:
             "type": "result", "showdown": True,
             "boards": [list(b) for b in self.boards],
             "reveals": [{"name": p.name, "hole": list(p.hole),
-                         "hands": [describe(board_scores[b][p.id]) for b in range(nb)]}
+                         "hands": [describe_full(board_scores[b][p.id]) for b in range(nb)]}
                         for p in contenders],
             "board_winners": self.board_winners,
         })
@@ -770,6 +770,22 @@ class Game:
             "hole": revealed,   # only set at showdown, otherwise None
         }
 
+    def current_hands(self, pid: str) -> list[str]:
+        """Descriptive best hand(s) for this player's live cards, one per board.
+
+        Returns [] until a hand can be made (need >= 3 board cards), or if the
+        player has folded / has no cards.
+        """
+        p = self._player(pid)
+        if (not p or not p.hole or p.folded or not self.hand_in_progress):
+            return []
+        out = []
+        for board in self.boards:
+            if len(board) < 3:
+                return []   # pre-flop: not enough board to form a 5-card hand
+            out.append(describe_full(self._eval(p.hole, board)))
+        return out
+
     def private_state(self, pid: str) -> dict:
         """The part only this player may see: their own hole cards + legal moves."""
         p = self._player(pid)
@@ -782,4 +798,5 @@ class Game:
             and self._seat(pid) == self.to_act,
             "can_rebuy": can_rebuy,
             "sitting_out": p.sitting_out if p else False,
+            "hands": self.current_hands(pid),
         }

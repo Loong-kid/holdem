@@ -20,7 +20,7 @@ naturally resolves ties the way poker rules intend.
 
 from itertools import combinations
 
-from .cards import card_rank, card_suit
+from .cards import card_rank, card_suit, RANK_NAME
 
 CATEGORY_NAMES = {
     8: "Straight Flush",
@@ -119,3 +119,29 @@ def best_omaha(hole: list[str], board: list[str]) -> tuple:
 def describe(score: tuple) -> str:
     """Human-readable category name for a score tuple."""
     return CATEGORY_NAMES.get(score[0], "Unknown")
+
+
+def describe_full(score: tuple) -> str:
+    """Descriptive hand name including the key ranks, e.g. 'J-7 Full House',
+    'Q One Pair', 'A-high Flush'. The score tuple already carries the ranks in
+    tiebreak order, so we just label them."""
+    c = score[0]
+    r = score[1:]
+    N = RANK_NAME
+    if c == 8:
+        return f"{N[r[0]]}-high Straight Flush"
+    if c == 7:
+        return f"Four {N[r[0]]}s"
+    if c == 6:
+        return f"{N[r[0]]}-{N[r[1]]} Full House"
+    if c == 5:
+        return f"{N[r[0]]}-high Flush"
+    if c == 4:
+        return f"{N[r[0]]}-high Straight"
+    if c == 3:
+        return f"Three {N[r[0]]}s"
+    if c == 2:
+        return f"{N[r[0]]}-{N[r[1]]} Two Pair"
+    if c == 1:
+        return f"{N[r[0]]} One Pair"
+    return f"{N[r[0]]} High"

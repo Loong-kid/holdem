@@ -297,6 +297,26 @@ function sendAction(action, amount = 0) {
 $("raise-slider").oninput = () => ($("raise-amount").value = $("raise-slider").value);
 $("raise-amount").oninput = () => ($("raise-slider").value = $("raise-amount").value);
 
+// Bet-sizing shortcuts: fill the raise amount with a fraction of the pot (or
+// all-in). A "pot" raise = call + the pot after calling, matching pot-limit.
+document.querySelectorAll(".bet-preset").forEach((b) => {
+  b.onclick = () => {
+    if (!priv || !priv.legal || !priv.legal.can_raise) return;
+    const L = priv.legal;
+    let target;
+    if (b.dataset.frac === "max") {
+      target = L.max_raise_to;
+    } else {
+      const frac = parseFloat(b.dataset.frac);
+      const pot = (state && state.pot) || 0;
+      target = (state.current_bet || 0) + Math.round(frac * (pot + L.to_call));
+    }
+    target = Math.max(L.min_raise_to, Math.min(L.max_raise_to, target));
+    $("raise-slider").value = target;
+    $("raise-amount").value = target;
+  };
+});
+
 // ---- Card rendering -------------------------------------------------------
 const SUIT = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const RED = new Set(["h", "d"]);
@@ -411,8 +431,23 @@ function render() {
 
   renderSeats();
   renderControls();
+  renderHandRank();
   renderLog();
   renderChat();
+}
+
+// Live "what do I have" readout (e.g. "J-7 Full House"), per board in Omaha.
+function renderHandRank() {
+  const hr = $("hand-rank");
+  const hands = (priv && priv.hands) ? priv.hands : [];
+  if (!hands.length || !state.hand_in_progress) { hr.classList.add("hidden"); return; }
+  hr.classList.remove("hidden");
+  if (hands.length > 1) {
+    hr.innerHTML = "내 패 &nbsp; " + hands.map((h, i) =>
+      `<span class="hr-tag">${i + 1}</span><b>${escapeHtml(h)}</b>`).join("&nbsp;&nbsp;&nbsp;");
+  } else {
+    hr.innerHTML = `내 패 &nbsp; <b>${escapeHtml(hands[0])}</b>`;
+  }
 }
 
 function renderSeats() {

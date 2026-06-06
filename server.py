@@ -30,7 +30,7 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-APP_VERSION = "v13-omaha"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v14-bigtable"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
