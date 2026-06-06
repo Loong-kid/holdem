@@ -30,7 +30,8 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-APP_VERSION = "v14-bigtable"   # bump on deploy so we can confirm what's live
+DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
+APP_VERSION = "v15-reconnect"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -76,6 +77,10 @@ class Room:
         #   active  = is someone currently connected under this name
         self.ledger: dict[str, dict] = {}
         self.chat: list[dict] = []         # recent chat messages {name, text}
+        # Players whose connection dropped but who keep their seat + cards for a
+        # grace period so a brief network blip doesn't fold them out.
+        #   pid -> monotonic deadline to actually drop them
+        self.disconnected: dict[str, float] = {}
 
         # ---- auto-deal + action timer ----
         self.auto_running = False          # is the table continuously dealing?
@@ -136,6 +141,38 @@ class Room:
         self.auto_running = False
         self.action_deadline = None
         self.next_hand_at = None
+
+    # ---- disconnect / reconnect ----------------------------------------------
+
+    def mark_disconnected(self, pid: str):
+        """Connection dropped: keep the seat + cards, start the grace countdown."""
+        p = self.game._player(pid)
+        if not p:
+            return
+        if p.name in self.ledger:
+            self.ledger[p.name]["active"] = False
+            self.ledger[p.name]["last_stack"] = p.chips
+        self.disconnected[pid] = self._now() + DISCONNECT_GRACE
+        self.game.log.append(f"{p.name} 연결 끊김 (재접속 대기).")
+
+    def drop_player(self, pid: str):
+        """Remove a player for good (intentional leave, or grace expired)."""
+        self.disconnected.pop(pid, None)
+        gone = self.game._player(pid)
+        if gone and gone.name in self.ledger:
+            self.ledger[gone.name]["last_stack"] = gone.chips
+            self.ledger[gone.name]["active"] = False
+        self.game.remove_player(pid)
+        if self.host_id == pid:   # host left -> pass the crown to anyone remaining
+            self.host_id = self.game.players[0].id if self.game.players else None
+
+    def reconnected_pid(self, name: str) -> str | None:
+        """If a disconnected player with this nickname is still seated, their id."""
+        for pid in self.disconnected:
+            p = self.game._player(pid)
+            if p and p.name == name:
+                return pid
+        return None
 
     # ---- tournament blind clock ----------------------------------------------
 
@@ -221,6 +258,12 @@ class Room:
         now = self._now()
         changed = False
 
+        # Drop players whose reconnect grace period has run out.
+        if self.disconnected:
+            for pid in [k for k, dl in self.disconnected.items() if now >= dl]:
+                self.drop_player(pid)
+                changed = True
+
         # Tournament blind clock: independent of whose turn it is. Advancing a
         # level just changes the blinds; they apply on the next hand (engine
         # rule), so it is safe to fire even mid-hand.
@@ -261,9 +304,12 @@ class Room:
                 await asyncio.sleep(0.25)
                 async with self.lock:
                     changed = self._tick()
+                    idle = not self.connections and not self.disconnected
                 if changed:
                     await self.broadcast()
                     await self.persist_new_hands()
+                if idle:        # nobody here and nobody to wait for -> let the loop end
+                    break
         except asyncio.CancelledError:
             pass
 
@@ -290,6 +336,9 @@ class Room:
         """Send the latest state to every connected player (public + their private)."""
         public = self.game.public_state()
         public["host"] = self.host_id
+        dc = set(self.disconnected.keys())
+        for pl in public["players"]:
+            pl["disconnected"] = pl["id"] in dc
         public["ledger"] = self.ledger_view()
         public["auto_running"] = self.auto_running
         public["action_timeout"] = self.timeout_seconds
@@ -315,7 +364,11 @@ class Room:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self.connections.pop(ws, None)
+            pid = self.connections.pop(ws, None)
+            # A failed send means the socket is gone: start their grace period so
+            # they can reconnect instead of being silently stuck.
+            if pid and pid not in self.disconnected and self.game._player(pid):
+                self.mark_disconnected(pid)
 
 
 class RoomManager:
@@ -347,6 +400,7 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     room: Room | None = None
     pid: str | None = None
+    left_clean = False        # set when the player clicks "나가기" (vs a network drop)
     try:
         while True:
             msg = await ws.receive_json()
@@ -359,23 +413,33 @@ async def websocket_endpoint(ws: WebSocket):
                 candidate = uuid.uuid4().hex[:8]
                 error = None
                 async with room.lock:
+                    recon = room.reconnected_pid(name)
                     entry = room.ledger.get(name)
-                    if entry and entry["active"]:
+                    if recon is not None:
+                        # Reconnect within the grace window: resume the same seat,
+                        # cards and turn — do NOT create a new player.
+                        pid = recon
+                        room.disconnected.pop(pid, None)
+                        if entry is not None:
+                            entry["active"] = True
+                        room.game.log.append(f"{name} 재접속 완료.")
+                    elif entry and entry["active"]:
                         error = "이미 사용 중인 닉네임입니다. 다른 이름을 써주세요."
                     elif room.game.is_full():
                         error = "테이블이 가득 찼습니다 (최대 9명)."
                     elif entry is not None:
-                        # Same name returning -> restore their previous stack.
-                        player = room.game.add_player(candidate, name, entry["last_stack"])
+                        # Same name returning (already fully left) -> restore stack.
+                        room.game.add_player(candidate, name, entry["last_stack"])
                         entry["active"] = True
+                        pid = candidate
                     else:
                         # Brand new player -> default buy-in.
                         start = room.game.starting_chips
-                        player = room.game.add_player(candidate, name, start)
+                        room.game.add_player(candidate, name, start)
                         room.ledger[name] = {"buyin": start, "added": 0, "removed": 0,
                                              "last_stack": start, "active": True}
-                    if error is None:
                         pid = candidate
+                    if error is None:
                         room.connections[ws] = pid
                         if room.host_id is None:        # first arrival becomes host
                             room.host_id = pid
@@ -549,6 +613,10 @@ async def websocket_endpoint(ws: WebSocket):
                         await ws.send_json({"type": "error", "message": err})
                     await room.broadcast()
 
+            elif mtype == "leave":
+                left_clean = True       # intentional: remove immediately in finally
+                break
+
             elif mtype == "ping":
                 await ws.send_json({"type": "pong"})
 
@@ -558,17 +626,14 @@ async def websocket_endpoint(ws: WebSocket):
         if room and ws in room.connections:
             leaving = room.connections.pop(ws)
             async with room.lock:
-                gone = room.game._player(leaving)
-                if gone and gone.name in room.ledger:
-                    # Freeze their ledger row; they can reclaim the stack by
-                    # rejoining under the same nickname.
-                    room.ledger[gone.name]["last_stack"] = gone.chips
-                    room.ledger[gone.name]["active"] = False
-                room.game.remove_player(leaving)
-                if room.host_id == leaving:   # host left -> pass the crown to anyone left
-                    room.host_id = room.game.players[0].id if room.game.players else None
+                if left_clean:
+                    room.drop_player(leaving)        # intentional leave: remove now
+                else:
+                    room.mark_disconnected(leaving)  # network drop: hold the seat (grace)
             await room.broadcast()
-            if not room.connections:          # last one out -> stop the clock
+            # Stop the clock only when nobody is connected AND nobody is waiting to
+            # reconnect (otherwise the grace timer needs to keep ticking).
+            if not room.connections and not room.disconnected:
                 room.stop_loop()
 
 

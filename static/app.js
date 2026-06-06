@@ -16,6 +16,7 @@ let replayList = [];       // [{number, title}] fetched on demand
 let showPositions = localStorage.getItem("showPositions") !== "0";  // personal display toggle
 let curTourney = null;     // last tournament state (for the top-bar clock)
 let levelDeadline = null;  // local wall-clock (ms) when the current level ends, or null if paused
+let timeoutTotal = 30;     // server's per-action time limit, for the countdown gauge
 
 // Default blind ladder used when the host grows the level table (mirrors the
 // server's DEFAULT_TOURNAMENT_LEVELS).
@@ -32,11 +33,25 @@ const $ = (id) => document.getElementById(id);
 // state update; we tick locally so the number counts down every quarter second.
 setInterval(() => {
   const el = $("turn-timer");
+  const bar = $("turn-bar");
+  const fill = $("turn-bar-fill");
   if (!el) return;
-  if (actorDeadline == null) { el.textContent = ""; el.classList.remove("urgent"); return; }
-  const left = Math.max(0, Math.ceil((actorDeadline - Date.now()) / 1000));
+  if (actorDeadline == null) {
+    el.textContent = ""; el.classList.remove("urgent");
+    if (bar) bar.classList.add("hidden");
+    return;
+  }
+  const remain = Math.max(0, (actorDeadline - Date.now()) / 1000);
+  const left = Math.ceil(remain);
   el.textContent = "⏱ " + left + "초";
-  el.classList.toggle("urgent", left <= 5);
+  const urgent = left <= 5;
+  el.classList.toggle("urgent", urgent);
+  if (bar && fill) {
+    bar.classList.remove("hidden");
+    const pct = Math.max(0, Math.min(100, (remain / (timeoutTotal || 30)) * 100));
+    fill.style.width = pct + "%";
+    fill.classList.toggle("urgent", urgent);
+  }
 }, 250);
 
 // Tournament blind clock in the top bar. The server tells us the current level
@@ -63,48 +78,79 @@ setInterval(() => {
   el.textContent = txt;
 }, 250);
 
-// ---- Join -----------------------------------------------------------------
+// ---- Join + auto-reconnect ------------------------------------------------
+let myName = null, myRoom = null;   // remembered so we can rejoin the same seat
+let reconnectTries = 0;
+let awaitingRejoin = false;         // this socket is a reconnect attempt awaiting "joined"
+
 $("join-btn").onclick = () => {
-  const name = $("name-input").value.trim() || "Player";
-  const room = $("room-input").value.trim() || "main";
-  connect(name, room);
+  myName = $("name-input").value.trim() || "Player";
+  myRoom = $("room-input").value.trim() || "main";
+  reconnectTries = 0;
+  openSocket(false);
 };
 
-function connect(name, room) {
+function openSocket(isReconnect) {
+  awaitingRejoin = !!isReconnect;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-
-  ws.onopen = () => ws.send(JSON.stringify({ type: "join", room, name }));
-
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === "joined") {
-      myId = msg.id;
-      $("room-label").textContent = "방: " + msg.room;
-      $("join-screen").classList.add("hidden");
-      $("game-screen").classList.remove("hidden");
-    } else if (msg.type === "state") {
-      state = msg.public;
-      priv = msg.private;
-      render();
-    } else if (msg.type === "replays") {
-      replayList = msg.list || [];
-      renderReplayList();
-    } else if (msg.type === "replay") {
-      if (msg.record) {
-        replayFrames = buildReplayFrames(msg.record);
-        replayIndex = 0;
-        renderReplayFrame();
-      }
-    } else if (msg.type === "error") {
-      flashStatus(msg.message);
-    }
-  };
-
-  ws.onclose = () => flashStatus("서버 연결이 끊어졌습니다.");
+  ws.onopen = () => ws.send(JSON.stringify({ type: "join", room: myRoom, name: myName }));
+  ws.onmessage = (ev) => onSocketMessage(JSON.parse(ev.data));
+  ws.onclose = () => onSocketClose();
 }
 
-$("leave-btn").onclick = () => location.reload();
+function onSocketMessage(msg) {
+  if (msg.type === "joined") {
+    myId = msg.id;
+    reconnectTries = 0;
+    awaitingRejoin = false;
+    $("room-label").textContent = "방: " + msg.room;
+    $("join-screen").classList.add("hidden");
+    $("game-screen").classList.remove("hidden");
+    flashStatus("");
+  } else if (msg.type === "state") {
+    state = msg.public;
+    priv = msg.private;
+    render();
+  } else if (msg.type === "replays") {
+    replayList = msg.list || [];
+    renderReplayList();
+  } else if (msg.type === "replay") {
+    if (msg.record) {
+      replayFrames = buildReplayFrames(msg.record);
+      replayIndex = 0;
+      renderReplayFrame();
+    }
+  } else if (msg.type === "error") {
+    if (awaitingRejoin) {
+      // Rejoin refused (server may not have noticed our old socket dropped yet);
+      // close and let the reconnect loop retry shortly.
+      try { ws.close(); } catch (e) {}
+    } else {
+      flashStatus(msg.message);
+    }
+  }
+}
+
+function onSocketClose() {
+  if (myId != null && reconnectTries < 30) {
+    // We were in a game: keep trying to resume the same seat within the grace
+    // window (~30 * 2s = 60s, matching the server's DISCONNECT_GRACE).
+    reconnectTries++;
+    flashStatus(`연결이 끊겼습니다. 재접속 시도 중... (${reconnectTries})`);
+    setTimeout(() => openSocket(true), 2000);
+  } else if (myId != null) {
+    flashStatus("재접속 실패. 새로고침(F5) 후 같은 닉네임으로 다시 들어오세요.");
+  } else {
+    flashStatus("서버 연결이 끊어졌습니다.");
+  }
+}
+
+$("leave-btn").onclick = () => {
+  reconnectTries = 99;                 // intentional leave -> do not auto-reconnect
+  try { ws.send(JSON.stringify({ type: "leave" })); } catch (e) {}
+  setTimeout(() => location.reload(), 120);
+};
 $("deal-btn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
 
 // ---- Modals (settings + leaderboard) --------------------------------------
@@ -386,6 +432,7 @@ function render() {
   $("rebuy-btn").classList.toggle("hidden", !(priv && priv.can_rebuy));
 
   // Set the local countdown deadline from the server's "seconds left".
+  if (state.action_timeout) timeoutTotal = state.action_timeout;
   if (state.hand_in_progress && state.to_act && state.time_left != null) {
     actorDeadline = Date.now() + state.time_left * 1000;
   } else {
@@ -480,6 +527,7 @@ function renderSeats() {
     if (p.id === state.to_act) seat.classList.add("active");
     if (p.folded && !p.sitting_out) seat.classList.add("folded");
     if (p.sitting_out) seat.classList.add("sitting");
+    if (p.disconnected) seat.classList.add("disconnected");
 
     // Cards: my own (or revealed at showdown) face up, others face down.
     const hc = state.hole_count || 2;
@@ -518,7 +566,9 @@ function renderSeats() {
 
     const act = document.createElement("div");
     act.className = "paction";
-    if (p.sitting_out) {
+    if (p.disconnected) {
+      act.innerHTML = '<span class="dc-badge">📶 연결 끊김</span>';
+    } else if (p.sitting_out) {
       act.innerHTML = '<span class="sitting-badge">자리비움</span>';
     } else if (p.chips === 0 && !p.in_hand) {
       act.innerHTML = '<span class="sitting-badge">잔액 없음</span>';
