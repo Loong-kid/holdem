@@ -15,7 +15,6 @@ import asyncio
 import os
 import socket
 import traceback
-from urllib.parse import unquote, urlsplit
 
 try:
     import psycopg
@@ -43,25 +42,49 @@ def status() -> dict:
     }
 
 
+def _parse_db_url(url: str) -> dict:
+    """Parse a postgres URL by hand into {user, password, host, port, dbname}.
+
+    We avoid urllib.parse on purpose: Python 3.14 made it validate the netloc and
+    it raises on passwords containing characters like '[' or ']'. Splitting the
+    string ourselves takes the password exactly as written, no validation.
+    """
+    rest = url.split("://", 1)[1] if "://" in url else url
+    authority, _, pathq = rest.partition("/")
+    dbname = pathq.split("?", 1)[0]
+    if "@" in authority:
+        userinfo, hostport = authority.rsplit("@", 1)   # rsplit: '@' in password is fine
+    else:
+        userinfo, hostport = "", authority
+    user, sep, password = userinfo.partition(":")       # password kept raw
+    host, sep, port = hostport.partition(":")
+    try:
+        port = int(port) if port else 5432
+    except ValueError:
+        port = 5432
+    return {"user": user, "password": password if sep else "",
+            "host": host, "port": port, "dbname": dbname or "postgres"}
+
+
 def _conninfo(url: str) -> str:
     """Turn a DATABASE_URL into a libpq keyword conninfo string.
 
-    Parsing it into explicit fields (instead of feeding the raw URL to the
-    driver) means special characters in the password never need URL-encoding.
+    Building keyword params (instead of feeding the raw URL to the driver) means
+    special characters in the password never need URL-encoding.
     """
-    p = urlsplit(url)
-    host = p.hostname
-    port = p.port or 5432
+    parsed = _parse_db_url(url)
+    host = parsed["host"]
+    port = parsed["port"]
     params = {
         "host": host,
         "port": port,
-        "dbname": (p.path or "/postgres").lstrip("/") or "postgres",
+        "dbname": parsed["dbname"],
         "sslmode": "require",
     }
-    if p.username:
-        params["user"] = unquote(p.username)
-    if p.password:
-        params["password"] = unquote(p.password)
+    if parsed["user"]:
+        params["user"] = parsed["user"]
+    if parsed["password"]:
+        params["password"] = parsed["password"]
     # Resolve the hostname to an IP ourselves and pass it as `hostaddr`. libpq then
     # connects to the IP directly (using `host` only for TLS SNI), so the driver
     # never runs its own hostname resolver - which on some platforms chokes with
