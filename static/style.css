@@ -478,6 +478,9 @@ body.not-host .host-only { display: none !important; }
 
   .table-wrap { height: auto; flex: 1; min-height: 0; padding: 6px; overflow: visible; }
   .table { width: 88vw; height: 52dvh; border-width: 7px; border-radius: 90px; }
+  /* Lift the centre (boards/pot/timer) up a bit so the bottom player's
+     full-size Omaha hole cards don't reach the "⏱ 초" timer; keep it on top. */
+  .board { top: 43%; z-index: 4; }
 
   /* Community (board) cards smaller so 5 fit on a narrow felt. */
   .community { gap: 4px; min-height: 0; }
