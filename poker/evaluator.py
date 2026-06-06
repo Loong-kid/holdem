@@ -98,6 +98,24 @@ def best_hand(cards: list[str]) -> tuple:
     return max(score_five(list(combo)) for combo in combinations(cards, 5))
 
 
+def best_omaha(hole: list[str], board: list[str]) -> tuple:
+    """Best Omaha hand: EXACTLY 2 of the hole cards + EXACTLY 3 of the board.
+
+    This is the rule that makes Omaha different from Hold'em - you cannot use one
+    or zero hole cards. With 4 hole cards and a 5-card board that is
+    C(4,2) * C(5,3) = 6 * 10 = 60 combinations to check.
+    """
+    if len(board) < 3:
+        raise ValueError("need at least 3 board cards to evaluate Omaha")
+    best = None
+    for two in combinations(hole, 2):
+        for three in combinations(board, 3):
+            s = score_five(list(two) + list(three))
+            if best is None or s > best:
+                best = s
+    return best
+
+
 def describe(score: tuple) -> str:
     """Human-readable category name for a score tuple."""
     return CATEGORY_NAMES.get(score[0], "Unknown")

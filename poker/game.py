@@ -18,7 +18,27 @@ logic simple.
 """
 
 from .cards import Deck, card_rank, RANK_NAME
-from .evaluator import best_hand, describe
+from .evaluator import best_hand, best_omaha, describe
+
+# Variant definitions: how many hole cards each player gets and how many
+# community boards are dealt. The showdown uses Omaha rules (exactly 2+3) for any
+# 4-card variant. "omaha2" is Double Board Omaha: two boards, pot split per board.
+VARIANTS = {
+    "holdem": {"hole": 2, "boards": 1, "omaha": False, "label": "홀덤"},
+    "omaha":  {"hole": 4, "boards": 1, "omaha": True,  "label": "오마하"},
+    "omaha2": {"hole": 4, "boards": 2, "omaha": True,  "label": "더블보드 오마하"},
+}
+
+
+def _result_winners(result: dict) -> list[dict]:
+    """Flatten a result event's winners across boards (handles old + new format)."""
+    if result.get("board_winners") is not None:
+        flat: list[dict] = []
+        for bw in result["board_winners"]:
+            flat.extend(bw)
+        return flat
+    return result.get("winners", [])
+
 
 # Position names by number of players in the hand, listed in seat order from the
 # small blind around to the button. Matches common 2- to 9-handed conventions.
@@ -26,15 +46,17 @@ def summarize_hand(record: dict) -> str:
     """A short human title for a finished hand, e.g. '#3  Bob +60 (Straight)'."""
     result = next((e for e in record["events"] if e["type"] == "result"), None)
     title = f"#{record['number']}"
-    if result and result["winners"]:
-        w = result["winners"][0]
+    winners = _result_winners(result) if result else []
+    if winners:
+        w = winners[0]
         title = f"#{record['number']}  {w['name']} +{w['amount']}"
-        if result.get("showdown"):
-            hand = next((r["hand"] for r in result["reveals"]
+        hand = w.get("hand")
+        if not hand and result.get("showdown"):
+            hand = next((r.get("hand") for r in result.get("reveals", [])
                          if r["name"] == w["name"]), "")
-            if hand:
-                title += f" ({hand})"
-        else:
+        if hand:
+            title += f" ({hand})"
+        elif not result.get("showdown"):
             title += " (무쇼다운)"
     return title
 
@@ -80,9 +102,13 @@ class Game:
         self.bb = big_blind
         self.starting_chips = starting_chips
 
+        # Game variant + betting limit (host-controlled, applied next hand).
+        self.variant = "holdem"           # holdem | omaha | omaha2
+        self.betting = "nl"               # nl (no-limit) | pl (pot-limit)
+
         self.button = 0                   # seat index of the dealer button
         self.phase = "waiting"
-        self.community: list[str] = []
+        self.boards: list[list[str]] = [[]]   # 1 or 2 community boards
         self.deck: Deck | None = None
         self.pot = 0
         self.current_bet = 0              # highest bet to match this round
@@ -90,12 +116,33 @@ class Game:
         self.to_act: int | None = None    # seat index whose turn it is
         self.hand_in_progress = False
         self.log: list[str] = []          # text feed for the UI
-        self.results: list[dict] = []     # winners of the last hand
+        self.results: list[dict] = []     # winners of the last hand (per player)
+        self.board_winners: list[list[dict]] = []  # winners per board at showdown
         self.revealed: dict[str, list[str]] = {}  # pid -> hole cards at showdown
         # ---- replay recording ----
         self.history: list[dict] = []     # events of the current hand
         self.hand_log: list[dict] = []    # finished hands (for replay), most recent last
         self.hand_count = 0               # how many hands have completed
+
+    # ---- variant helpers ------------------------------------------------------
+
+    @property
+    def hole_count(self) -> int:
+        return VARIANTS[self.variant]["hole"]
+
+    @property
+    def num_boards(self) -> int:
+        return VARIANTS[self.variant]["boards"]
+
+    @property
+    def is_omaha(self) -> bool:
+        return VARIANTS[self.variant]["omaha"]
+
+    def _eval(self, hole: list[str], board: list[str]) -> tuple:
+        """Score a player's best 5-card hand on one board, per the variant's rules."""
+        if self.is_omaha:
+            return best_omaha(hole, board)
+        return best_hand(hole + board)
 
     # ---- seat / player helpers ------------------------------------------------
 
@@ -137,6 +184,16 @@ class Game:
         """Default buy-in for players who join from now on."""
         self.starting_chips = max(1, int(amount))
         self.log.append(f"Default buy-in set to {self.starting_chips}.")
+
+    def set_variant(self, variant: str | None, betting: str | None):
+        """Change game variant / betting limit. Takes effect on the next hand."""
+        if variant in VARIANTS:
+            self.variant = variant
+        if betting in ("nl", "pl"):
+            self.betting = betting
+        label = VARIANTS[self.variant]["label"]
+        limit = "팟리밋" if self.betting == "pl" else "노리밋"
+        self.log.append(f"게임 모드: {label} · {limit} (다음 핸드부터).")
 
     def adjust_stack(self, pid: str, delta: int) -> tuple[int, str | None]:
         """Add (delta>0) or remove (delta<0) chips from a player's stack.
@@ -222,13 +279,14 @@ class Game:
                 p.folded = True
 
         self.deck = Deck()
-        self.community = []
+        self.boards = [[] for _ in range(self.num_boards)]
         self.pot = 0
         self.current_bet = 0
         self.min_raise = self.bb
         self.phase = "preflop"
         self.hand_in_progress = True
         self.results = []
+        self.board_winners = []
         self.revealed = {}
         self.log.append("--- New hand ---")
 
@@ -241,7 +299,7 @@ class Game:
         # (seated and not folded i.e. not sitting out).
         order = [i for i in self._seat_order_from(self._next_occupied(self.button))
                  if not self.players[i].folded]
-        for _ in range(2):
+        for _ in range(self.hole_count):
             for i in order:
                 self.players[i].hole.append(self.deck.deal_one())
 
@@ -251,6 +309,7 @@ class Game:
             "type": "start",
             "button": self.players[self.button].name,
             "sb": self.sb, "bb": self.bb,
+            "variant": self.variant, "num_boards": self.num_boards,
             "players": [
                 {"name": self.players[i].name, "seat": i,
                  "hole": list(self.players[i].hole),
@@ -327,26 +386,42 @@ class Game:
         if self.to_act is None:
             self._end_betting_round()
 
+    def _raise_bounds(self, p: Player) -> tuple[int, int, int]:
+        """Return (to_call, all_in_to, max_raise_to) for the player to act.
+
+        max_raise_to is the highest legal raise-TO this round: the all-in amount
+        in no-limit, or the pot-sized cap in pot-limit (whichever is smaller).
+        Pot-limit cap = current bet + (pot after you call) = current_bet + pot + to_call.
+        """
+        to_call = self.current_bet - p.bet
+        all_in_to = p.bet + p.chips
+        if self.betting == "pl":
+            cap = self.current_bet + (self.pot + to_call)
+            max_to = min(cap, all_in_to)
+        else:
+            max_to = all_in_to
+        return to_call, all_in_to, max_to
+
     def legal_actions(self, pid: str) -> dict | None:
         """What the player to act is allowed to do (drives the UI buttons)."""
         seat = self._seat(pid)
         if seat is None or seat != self.to_act:
             return None
         p = self.players[seat]
-        to_call = self.current_bet - p.bet
+        to_call, all_in_to, max_to = self._raise_bounds(p)
         info = {
             "can_fold": True,
             "can_check": to_call == 0,
             "can_call": to_call > 0,
             "call_amount": min(to_call, p.chips),
-            "can_raise": p.chips > to_call,
+            "can_raise": p.chips > to_call and max_to > self.current_bet,
             "min_raise_to": 0,
-            "max_raise_to": p.bet + p.chips,   # going all-in
+            "max_raise_to": max_to,
             "to_call": to_call,
         }
         if info["can_raise"]:
             target = self.current_bet + self.min_raise
-            info["min_raise_to"] = min(target, info["max_raise_to"])
+            info["min_raise_to"] = min(target, max_to)
         return info
 
     def act(self, pid: str, action: str, amount: int = 0) -> str | None:
@@ -380,10 +455,12 @@ class Game:
 
         elif action in ("bet", "raise"):
             target = int(amount)             # raise-TO semantics (total this round)
-            max_to = p.bet + p.chips
-            if target > max_to:
+            to_call_now, all_in_to, max_to = self._raise_bounds(p)
+            if target > all_in_to:
                 return "You don't have that many chips."
-            going_all_in = target == max_to
+            if target > max_to:                # pot-limit cap
+                return f"팟 리밋: 최대 {max_to}까지 올릴 수 있습니다."
+            going_all_in = target == all_in_to
             raise_by = target - self.current_bet
             if raise_by <= 0:
                 return "Raise must be higher than the current bet."
@@ -439,26 +516,32 @@ class Game:
         self.to_act = None
         self._next_street()
 
+    def _deal_boards(self, n: int):
+        """Deal n cards to every community board (1 board normally, 2 for omaha2)."""
+        for board in self.boards:
+            board.extend(self.deck.deal(n))
+
     def _next_street(self):
         if self.phase == "preflop":
             self.phase = "flop"
-            self.community += self.deck.deal(3)
+            self._deal_boards(3)
         elif self.phase == "flop":
             self.phase = "turn"
-            self.community += self.deck.deal(1)
+            self._deal_boards(1)
         elif self.phase == "turn":
             self.phase = "river"
-            self.community += self.deck.deal(1)
+            self._deal_boards(1)
         elif self.phase == "river":
             self._showdown()
             return
 
-        self.log.append(f"--- {self.phase.title()}: {' '.join(self.community)} ---")
+        shown = " | ".join(" ".join(b) for b in self.boards)
+        self.log.append(f"--- {self.phase.title()}: {shown} ---")
         self.history.append({"type": "street", "street": self.phase,
-                             "cards": list(self.community)})
+                             "boards": [list(b) for b in self.boards]})
 
         # If at most one player can still act, no more betting is possible -
-        # deal the rest of the board straight through to showdown.
+        # deal the rest of the board(s) straight through to showdown.
         can_act = [p for p in self.players
                    if p.in_hand and not p.folded and not p.all_in]
         if len(can_act) <= 1:
@@ -471,11 +554,12 @@ class Game:
 
     def _win_uncontested(self, winner: Player):
         self.history.append({"type": "result", "showdown": False,
-                             "board": list(self.community), "reveals": [],
+                             "boards": [list(b) for b in self.boards], "reveals": [],
                              "winners": [{"name": winner.name, "amount": self.pot}]})
         winner.chips += self.pot
         self.results = [{"id": winner.id, "name": winner.name,
                          "amount": self.pot, "hand": ""}]
+        self.board_winners = []
         self.log.append(f"{winner.name} wins {self.pot} (everyone folded).")
         self.pot = 0
         self._finish_hand()
@@ -486,41 +570,69 @@ class Game:
         for p in contenders:
             self.revealed[p.id] = p.hole
 
-        # Best hand for each contender (2 hole + 5 community).
-        scores = {p.id: best_hand(p.hole + self.community) for p in contenders}
+        nb = self.num_boards
+        # Each contender's best hand on each board (Omaha or Hold'em rules).
+        board_scores = [
+            {p.id: self._eval(p.hole, board) for p in contenders}
+            for board in self.boards
+        ]
 
-        # Split the pot into main + side pots based on how much each player put in.
+        # Split into main + side pots; then split each pot across the boards.
         pots = self._build_pots()
         payouts: dict[str, int] = {p.id: 0 for p in self.players}
+        board_acc: list[dict[str, int]] = [dict() for _ in range(nb)]
+
         for amount, eligible_ids in pots:
             eligible = [p for p in contenders if p.id in eligible_ids]
             if not eligible:
                 continue
-            best = max(scores[p.id] for p in eligible)
-            winners = [p for p in eligible if scores[p.id] == best]
-            share = amount // len(winners)
-            remainder = amount - share * len(winners)
-            for w in winners:
-                payouts[w.id] += share
-            if remainder:  # odd chip goes to first winner left of the button
-                winners[0].chips  # no-op for clarity
-                payouts[winners[0].id] += remainder
+            per = amount // nb
+            rem = amount - per * nb          # odd chips from the board split
+            for b in range(nb):
+                share = per + (rem if b == 0 else 0)
+                if share <= 0:
+                    continue
+                best = max(board_scores[b][p.id] for p in eligible)
+                winners = [p for p in eligible if board_scores[b][p.id] == best]
+                cut = share // len(winners)
+                odd = share - cut * len(winners)
+                for w in winners:
+                    payouts[w.id] += cut
+                    board_acc[b][w.id] = board_acc[b].get(w.id, 0) + cut
+                if odd:  # odd chip to the first winner left of the button
+                    payouts[winners[0].id] += odd
+                    board_acc[b][winners[0].id] = board_acc[b].get(winners[0].id, 0) + odd
 
+        # Apply payouts and build per-player results (for seat WIN badges).
         self.results = []
-        winners_rec = []
         for p in contenders:
             if payouts[p.id] > 0:
                 p.chips += payouts[p.id]
-                desc = describe(scores[p.id])
+                hand_desc = describe(board_scores[0][p.id]) if nb == 1 else ""
                 self.results.append({"id": p.id, "name": p.name,
-                                     "amount": payouts[p.id], "hand": desc})
-                self.log.append(f"{p.name} wins {payouts[p.id]} with {desc}.")
-                winners_rec.append({"name": p.name, "amount": payouts[p.id]})
+                                     "amount": payouts[p.id], "hand": hand_desc})
+
+        # Per-board winners (names + the hand they won that board with).
+        self.board_winners = []
+        for b in range(nb):
+            bw = []
+            for pid, amt in board_acc[b].items():
+                pl = self._player(pid)
+                bw.append({"name": pl.name, "amount": amt,
+                           "hand": describe(board_scores[b][pid])})
+            bw.sort(key=lambda x: -x["amount"])
+            self.board_winners.append(bw)
+            label = f" 보드{b + 1}" if nb > 1 else ""
+            for w in bw:
+                self.log.append(f"{w['name']} wins {w['amount']}{label} with {w['hand']}.")
+
         self.history.append({
-            "type": "result", "showdown": True, "board": list(self.community),
+            "type": "result", "showdown": True,
+            "boards": [list(b) for b in self.boards],
             "reveals": [{"name": p.name, "hole": list(p.hole),
-                         "hand": describe(scores[p.id])} for p in contenders],
-            "winners": winners_rec,
+                         "hands": [describe(board_scores[b][p.id]) for b in range(nb)]}
+                        for p in contenders],
+            "board_winners": self.board_winners,
         })
         self.pot = 0
         self._finish_hand()
@@ -611,13 +723,18 @@ class Game:
             to_act_id = self.players[self.to_act].id
         return {
             "phase": self.phase,
-            "community": self.community,
+            "boards": [list(b) for b in self.boards],
             "pot": self.pot,
             "current_bet": self.current_bet,
             "min_raise": self.min_raise,
             "big_blind": self.bb,
             "small_blind": self.sb,
             "starting_chips": self.starting_chips,
+            "variant": self.variant,
+            "betting": self.betting,
+            "hole_count": self.hole_count,
+            "num_boards": self.num_boards,
+            "board_winners": self.board_winners,
             "button": (self.players[self.button].id
                        if self.players and self.button < len(self.players) else None),
             "to_act": to_act_id,

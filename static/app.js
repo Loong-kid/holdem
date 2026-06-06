@@ -135,6 +135,12 @@ $("apply-default-stack").onclick = () =>
     type: "set_default_stack",
     amount: parseInt($("default-stack-input").value, 10),
   }));
+$("apply-variant").onclick = () =>
+  ws.send(JSON.stringify({
+    type: "set_variant",
+    variant: $("variant-select").value,
+    betting: $("betting-select").value,
+  }));
 $("show-positions").onchange = (e) => {
   showPositions = e.target.checked;
   localStorage.setItem("showPositions", showPositions ? "1" : "0");
@@ -313,11 +319,39 @@ function cardEl(card, small = false) {
   return el;
 }
 
+// Render one or more community boards into a container (5 cards each, padded
+// with placeholders). With two boards (Double Board Omaha) each row gets a small
+// numbered tag and the cards are drawn smaller so both rows fit.
+function renderBoards(container, boards) {
+  container.innerHTML = "";
+  const list = (boards && boards.length) ? boards : [[]];
+  const multi = list.length > 1;
+  list.forEach((bd, bi) => {
+    const row = document.createElement("div");
+    row.className = "board-row" + (multi ? " multi" : "");
+    if (multi) {
+      const tag = document.createElement("span");
+      tag.className = "board-tag";
+      tag.textContent = bi + 1;
+      row.appendChild(tag);
+    }
+    for (let i = 0; i < 5; i++) row.appendChild(cardEl(bd[i] || null, multi));
+    container.appendChild(row);
+  });
+}
+
 // ---- Main render ----------------------------------------------------------
 function render() {
   if (!state) return;
   $("phase-label").textContent = state.phase;
   $("blinds-label").textContent = `블라인드 ${state.small_blind}/${state.big_blind}`;
+
+  // Game-mode chip in the top bar (hidden for plain No-Limit Hold'em).
+  const VLABEL = { holdem: "홀덤", omaha: "오마하", omaha2: "더블보드 오마하" };
+  const vlabel = VLABEL[state.variant] || "";
+  const betlabel = state.betting === "pl" ? "팟리밋" : "노리밋";
+  $("mode-label").textContent =
+    (state.variant === "holdem" && state.betting === "nl") ? "" : `${vlabel} · ${betlabel}`;
 
   // Show/hide host-only controls based on whether I'm the host.
   document.body.classList.toggle("not-host", state.host !== myId);
@@ -351,17 +385,19 @@ function render() {
   if (!$("settings-modal").classList.contains("hidden")) renderSettings();
   if (!$("board-modal").classList.contains("hidden")) renderBoard();
 
-  // Community cards (pad to 5 placeholders so the table feels stable).
-  const comm = $("community");
-  comm.innerHTML = "";
-  for (let i = 0; i < 5; i++) {
-    comm.appendChild(cardEl(state.community[i] || null));
-  }
+  // Community board(s) — one row for Hold'em/Omaha, two for Double Board Omaha.
+  renderBoards($("community"), state.boards);
 
   $("pot").textContent = state.pot > 0 ? `팟: ${state.pot}` : "";
 
   // Winner banner at showdown / uncontested win.
-  if (state.results && state.results.length && !state.hand_in_progress) {
+  if (!state.hand_in_progress && state.num_boards > 1
+      && state.board_winners && state.board_winners.length) {
+    const parts = state.board_winners.map((bw, i) =>
+      `보드${i + 1} ` + bw.map((w) =>
+        `${w.name} +${w.amount}${w.hand ? " (" + w.hand + ")" : ""}`).join(", "));
+    $("status").textContent = "🏆 " + parts.join("   ·   ");
+  } else if (state.results && state.results.length && !state.hand_in_progress) {
     const txt = state.results
       .map((r) => `${r.name} +${r.amount}${r.hand ? " (" + r.hand + ")" : ""}`)
       .join(", ");
@@ -411,14 +447,15 @@ function renderSeats() {
     if (p.sitting_out) seat.classList.add("sitting");
 
     // Cards: my own (or revealed at showdown) face up, others face down.
+    const hc = state.hole_count || 2;
     const cardsWrap = document.createElement("div");
-    cardsWrap.className = "player-cards";
+    cardsWrap.className = "player-cards" + (hc >= 4 ? " four" : "");
     if (p.has_cards) {
       let hole = null;
       if (p.id === myId && priv && priv.hole && priv.hole.length) hole = priv.hole;
       else if (p.hole) hole = p.hole; // revealed at showdown
       if (hole) hole.forEach((c) => cardsWrap.appendChild(cardEl(c, true)));
-      else { cardsWrap.appendChild(cardEl("back", true)); cardsWrap.appendChild(cardEl("back", true)); }
+      else for (let k = 0; k < hc; k++) cardsWrap.appendChild(cardEl("back", true));
     }
     seat.appendChild(cardsWrap);
 
@@ -522,6 +559,10 @@ function renderSettings() {
   set("bb-input", state.big_blind);
   set("default-stack-input", state.starting_chips);
   set("timeout-input", state.action_timeout);
+  set("variant-select", state.variant || "holdem");
+  set("betting-select", state.betting || "nl");
+  ["variant-select", "betting-select", "apply-variant"].forEach(
+    (id) => ($(id).disabled = !isHost));
   // In tournament mode the blind schedule owns the blinds, so lock the manual
   // SB/BB fields and show a note explaining why.
   const tourneyOn = !!(state.tournament && state.tournament.enabled);
@@ -626,15 +667,18 @@ function koAction(label) {
 const KO_STREET = { flop: "플롭", turn: "턴", river: "리버" };
 
 // Replay events -> a list of full snapshots the user can step through.
+// Handles both the new multi-board format (e.boards / e.board_winners / r.hands)
+// and the older single-board format (e.cards / e.board / e.winners / r.hand).
 function buildReplayFrames(record) {
   const events = record.events || [];
+  const VLABEL = { holdem: "홀덤", omaha: "오마하", omaha2: "더블보드 오마하" };
   const players = {};
   let order = [];
-  let community = [];
+  let boards = [[]];
   let pot = 0;
   const frames = [];
   const snap = (caption) => frames.push({
-    caption, community: [...community], pot,
+    caption, boards: boards.map((b) => [...b]), pot,
     players: order.map((n) => ({ ...players[n], hole: [...(players[n].hole || [])] })),
   });
 
@@ -643,10 +687,11 @@ function buildReplayFrames(record) {
       order = e.players.map((p) => p.name);
       e.players.forEach((p) => (players[p.name] = {
         name: p.name, seat: p.seat, hole: p.hole, stack: p.stack, pos: p.pos || "",
-        bet: 0, folded: false, action: "", win: 0, handDesc: "",
+        bet: 0, folded: false, action: "", win: 0, hands: [],
       }));
-      community = []; pot = 0;
-      snap(`핸드 #${record.number} 시작 · 블라인드 ${e.sb}/${e.bb} · 버튼 ${e.button}`);
+      boards = [[]]; pot = 0;
+      const v = VLABEL[e.variant] ? ` · ${VLABEL[e.variant]}` : "";
+      snap(`핸드 #${record.number} 시작${v} · 블라인드 ${e.sb}/${e.bb}`);
     } else if (e.type === "post") {
       const p = players[e.name];
       if (p) { p.stack -= e.amount; p.bet += e.amount; p.action = e.blind; }
@@ -661,21 +706,35 @@ function buildReplayFrames(record) {
       pot = e.pot;
       snap(`${e.name} — ${koAction(e.label)}`);
     } else if (e.type === "street") {
-      community = e.cards;
+      boards = e.boards || (e.cards ? [e.cards] : boards);
       order.forEach((n) => { players[n].bet = 0; players[n].action = ""; });
-      snap(`${KO_STREET[e.street] || e.street}: ${e.cards.join(" ")}`);
+      const shown = boards.map((b) => b.join(" ")).join("   |   ");
+      snap(`${KO_STREET[e.street] || e.street}: ${shown}`);
     } else if (e.type === "result") {
-      community = e.board || community;
+      boards = e.boards || (e.board ? [e.board] : boards);
       let cap;
       if (e.showdown) {
-        (e.reveals || []).forEach((r) => { if (players[r.name]) players[r.name].handDesc = r.hand; });
-        cap = "쇼다운 — " + (e.winners || []).map((w) => `${w.name} +${w.amount}`).join(", ");
+        (e.reveals || []).forEach((r) => {
+          if (players[r.name]) players[r.name].hands = r.hands || (r.hand ? [r.hand] : []);
+        });
+        if (e.board_winners) {
+          cap = "쇼다운 — " + e.board_winners.map((bw, i) =>
+            `보드${i + 1} ` + bw.map((w) => `${w.name} +${w.amount}`).join(", ")).join("   ·   ");
+          e.board_winners.forEach((bw) => bw.forEach((w) => {
+            if (players[w.name]) { players[w.name].win += w.amount; players[w.name].stack += w.amount; }
+          }));
+        } else {
+          cap = "쇼다운 — " + (e.winners || []).map((w) => `${w.name} +${w.amount}`).join(", ");
+          (e.winners || []).forEach((w) => {
+            if (players[w.name]) { players[w.name].win = w.amount; players[w.name].stack += w.amount; }
+          });
+        }
       } else {
         cap = (e.winners || []).map((w) => `${w.name} +${w.amount} (모두 폴드)`).join(", ");
+        (e.winners || []).forEach((w) => {
+          if (players[w.name]) { players[w.name].win = w.amount; players[w.name].stack += w.amount; }
+        });
       }
-      (e.winners || []).forEach((w) => {
-        if (players[w.name]) { players[w.name].win = w.amount; players[w.name].stack += w.amount; }
-      });
       pot = 0;
       order.forEach((n) => (players[n].bet = 0));
       snap(cap);
@@ -696,9 +755,7 @@ function renderReplayFrame() {
   replayIndex = Math.max(0, Math.min(replayFrames.length - 1, replayIndex));
   const f = replayFrames[replayIndex];
 
-  const board = $("replay-board");
-  board.innerHTML = "";
-  for (let i = 0; i < 5; i++) board.appendChild(cardEl(f.community[i] || null, false));
+  renderBoards($("replay-board"), f.boards);
 
   $("replay-pot").textContent = `팟: ${f.pot}`;
 
@@ -718,7 +775,7 @@ function renderReplayFrame() {
       `<span class="rp-stack">${p.stack}</span>` +
       (p.bet > 0 ? `<span class="rp-bet">🪙${p.bet}</span>` : "") +
       (p.action ? `<span class="rp-act">${escapeHtml(p.action)}</span>` : "") +
-      (p.handDesc ? `<span class="rp-hand">${escapeHtml(p.handDesc)}</span>` : "") +
+      (p.hands && p.hands.length ? `<span class="rp-hand">${p.hands.map(escapeHtml).join(" / ")}</span>` : "") +
       (p.win > 0 ? `<span class="rp-win">+${p.win}</span>` : "");
     row.appendChild(cards);
     row.appendChild(info);

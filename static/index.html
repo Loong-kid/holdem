@@ -28,6 +28,7 @@
     <header class="topbar">
       <span id="room-label"></span>
       <span id="blinds-label"></span>
+      <span id="mode-label"></span>
       <span id="tourney-label" class="hidden"></span>
       <span id="phase-label"></span>
       <span class="topbar-spacer"></span>
@@ -98,6 +99,27 @@
       <section class="settings-section">
         <h3>표시 옵션 <span class="muted">(내 화면에만 적용)</span></h3>
         <label class="check-row"><input id="show-positions" type="checkbox" /> 포지션 이름 표시 (UTG, CO, BTN ...)</label>
+      </section>
+
+      <section class="settings-section">
+        <h3>게임 모드 <span class="muted">(다음 핸드부터 적용)</span></h3>
+        <div class="field-row">
+          <label>종목
+            <select id="variant-select">
+              <option value="holdem">홀덤</option>
+              <option value="omaha">오마하 (4장)</option>
+              <option value="omaha2">더블보드 오마하</option>
+            </select>
+          </label>
+          <label>베팅
+            <select id="betting-select">
+              <option value="nl">노리밋</option>
+              <option value="pl">팟리밋</option>
+            </select>
+          </label>
+          <button id="apply-variant" class="mini-btn host-only">적용</button>
+        </div>
+        <p class="modal-note">오마하: 홀카드 4장 중 <b>정확히 2장</b> + 보드 3장으로 메이드. 더블보드 오마하: 보드가 2개 깔리고 팟을 보드별로 절반씩 — 두 보드 다 이기면 스쿱(전부 획득).</p>
       </section>
 
       <section class="settings-section">

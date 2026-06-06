@@ -108,7 +108,15 @@ button.small {
   transform: translate(-50%, -50%);
   text-align: center;
 }
-.community { display: flex; gap: 7px; justify-content: center; min-height: 108px; }
+.community { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 108px; }
+.board-row { display: flex; gap: 7px; justify-content: center; align-items: center; }
+.board-row.multi { gap: 5px; }
+.board-tag {
+  width: 18px; height: 18px; flex: none;
+  background: var(--gold); color: #1a1a1a; border-radius: 50%;
+  font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+  margin-right: 2px;
+}
 .pot {
   margin-top: 10px;
   font-size: 16px;
@@ -174,6 +182,14 @@ button.small {
   text-align: center;
 }
 .seat .player-cards { display: flex; gap: 4px; justify-content: center; min-height: 82px; margin-bottom: 4px; }
+/* Omaha: 4 hole cards must fit the same seat width, so shrink them. */
+.player-cards.four { gap: 2px; }
+.player-cards.four .card.small { width: 30px; height: 44px; border-radius: 4px; }
+.player-cards.four .card.small .corner-top .r,
+.player-cards.four .card.small .corner-bottom .r { font-size: 12px; }
+.player-cards.four .card.small .corner-top .s,
+.player-cards.four .card.small .corner-bottom .s { font-size: 9px; }
+.player-cards.four .card.small .pip { font-size: 20px; }
 .nameplate {
   background: #122318;
   border: 1px solid #3c5c48;
@@ -306,6 +322,11 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 /* ---- Top bar extras ---- */
 .topbar-spacer { flex: 1; }
 #blinds-label { color: #9fbfa9; font-size: 13px; }
+#mode-label:not(:empty) {
+  color: #ffd98a; font-size: 12px; font-weight: 700;
+  background: rgba(232, 196, 104, 0.12);
+  border: 1px solid #5a4a22; border-radius: 6px; padding: 1px 7px;
+}
 #tourney-label {
   color: var(--gold); font-size: 13px; font-weight: 600;
   background: rgba(232, 196, 104, 0.12);
@@ -374,6 +395,10 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
   width: 90px; padding: 8px; border-radius: 6px;
   border: 1px solid #3c5c48; background: #122318; color: #fff; font-size: 14px;
 }
+.field-row select {
+  padding: 8px; border-radius: 6px;
+  border: 1px solid #3c5c48; background: #122318; color: #fff; font-size: 14px;
+}
 .mini-btn {
   padding: 8px 16px; border: none; border-radius: 6px;
   background: var(--gold); color: #1a1a1a; font-weight: 700; cursor: pointer; font-size: 13px;
@@ -423,7 +448,7 @@ body.not-host .host-only { display: none !important; }
 .replay-item:hover { background: rgba(255,255,255,0.06); }
 .replay-item.sel { background: #1c3a28; color: #fff; border: 1px solid var(--gold); }
 .replay-view { flex: 1; min-width: 0; }
-.replay-board { display: flex; gap: 6px; justify-content: center; min-height: 108px; }
+.replay-board { display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 108px; }
 .replay-pot { text-align: center; color: var(--gold); font-weight: 700; margin-top: 8px; }
 .replay-players { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
 .rp-row { display: flex; align-items: center; gap: 10px; background: #122318; border-radius: 8px; padding: 6px 10px; }
@@ -476,6 +501,13 @@ body.not-host .host-only { display: none !important; }
   .card.small .pip { font-size: 22px; }
   .nameplate { padding: 4px 5px; font-size: 11px; border-radius: 8px; }
   .nameplate .pchips { font-size: 11px; }
+  /* Omaha 4 hole cards on a narrow phone seat. */
+  .player-cards.four .card.small { width: 22px; height: 32px; }
+  .player-cards.four .card.small .corner-top .r,
+  .player-cards.four .card.small .corner-bottom .r { font-size: 9px; }
+  .player-cards.four .card.small .corner-top .s,
+  .player-cards.four .card.small .corner-bottom .s { font-size: 7px; }
+  .player-cards.four .card.small .pip { font-size: 14px; }
   .seat .pbet { font-size: 11px; margin-top: 2px; }
   .seat .paction { font-size: 10px; }
 

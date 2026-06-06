@@ -30,7 +30,7 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-APP_VERSION = "v12-tournament"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v13-omaha"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -520,6 +520,14 @@ async def websocket_endpoint(ws: WebSocket):
                 else:
                     async with room.lock:
                         room.game.set_default_stack(msg.get("amount"))
+                    await room.broadcast()
+
+            elif mtype == "set_variant" and room:
+                if pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.game.set_variant(msg.get("variant"), msg.get("betting"))
                     await room.broadcast()
 
             elif mtype == "adjust_stack" and room:
