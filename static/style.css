@@ -465,6 +465,12 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 /* Hide host-only controls for non-hosts. */
 body.not-host .host-only { display: none !important; }
 
+/* Spectator vs seated controls. */
+body.spectating .seated-only { display: none !important; }
+body:not(.spectating) .spectator-only { display: none !important; }
+#spectator-label { color: #8fd0ff; font-size: 13px; font-weight: 600; }
+#take-seat-btn { font-weight: 700; }
+
 /* ---- Replay viewer ---- */
 .modal-box.wide { width: 680px; }
 .replay-layout { display: flex; gap: 14px; margin-top: 14px; }

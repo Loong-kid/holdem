@@ -31,9 +31,12 @@
       <span id="mode-label"></span>
       <span id="tourney-label" class="hidden"></span>
       <span id="phase-label"></span>
+      <span id="spectator-label" class="hidden"></span>
       <span class="topbar-spacer"></span>
-      <button id="rebuy-btn" class="small accent hidden">💰 리바이</button>
-      <button id="sit-btn" class="small">자리비움</button>
+      <button id="take-seat-btn" class="small accent spectator-only">🪑 테이블에 앉기</button>
+      <button id="rebuy-btn" class="small accent hidden seated-only">💰 리바이</button>
+      <button id="sit-btn" class="small seated-only">자리비움</button>
+      <button id="stand-btn" class="small seated-only">🚪 일어서기</button>
       <button id="game-toggle-btn" class="small host-only">▶ 게임 시작</button>
       <button id="replay-btn" class="small">🎬 리플레이</button>
       <button id="board-btn" class="small">🏆 기록</button>
@@ -132,6 +135,12 @@
           <button id="apply-variant" class="mini-btn host-only">적용</button>
         </div>
         <p class="modal-note">오마하: 홀카드 4장 중 <b>정확히 2장</b> + 보드 3장으로 메이드. 더블보드 오마하: 보드가 2개 깔리고 팟을 보드별로 절반씩 — 두 보드 다 이기면 스쿱(전부 획득).</p>
+      </section>
+
+      <section class="settings-section">
+        <h3>접속 제한 <span class="muted">(중복 착석 방지)</span></h3>
+        <label class="check-row"><input id="allow-ip" type="checkbox" /> 같은 IP 여러 명 허용</label>
+        <p class="modal-note">기본은 한 IP당 한 자리만 착석할 수 있습니다(한 사람이 여러 자리 차지 방지). 같은 와이파이에서 여러 명이 함께 칠 때는 이 옵션을 켜세요. 같은 브라우저는 항상 자기 자리로 자동 복귀합니다.</p>
       </section>
 
       <section class="settings-section">

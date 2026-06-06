@@ -80,10 +80,25 @@ setInterval(() => {
   el.textContent = txt;
 }, 250);
 
-// ---- Join + auto-reconnect ------------------------------------------------
+// ---- Join (spectate) + sit/stand + auto-reconnect -------------------------
+// Joining a room makes you a SPECTATOR; you only get a seat after pressing
+// "테이블에 앉기" (sit). A per-browser token lets the same browser auto-resume
+// its seat (and stops one browser from grabbing multiple seats).
 let myName = null, myRoom = null;   // remembered so we can rejoin the same seat
 let reconnectTries = 0;
 let awaitingRejoin = false;         // this socket is a reconnect attempt awaiting "joined"
+let joinedOnce = false;             // we've successfully entered a room at least once
+
+function getToken() {
+  let t = localStorage.getItem("playerToken");
+  if (!t) {
+    t = (window.crypto && crypto.randomUUID)
+      ? crypto.randomUUID()
+      : Date.now().toString(36) + Math.random().toString(36).slice(2);
+    localStorage.setItem("playerToken", t);
+  }
+  return t;
+}
 
 $("join-btn").onclick = () => {
   myName = $("name-input").value.trim() || "Player";
@@ -96,20 +111,36 @@ function openSocket(isReconnect) {
   awaitingRejoin = !!isReconnect;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => ws.send(JSON.stringify({ type: "join", room: myRoom, name: myName }));
+  ws.onopen = () =>
+    ws.send(JSON.stringify({ type: "join", room: myRoom, name: myName, token: getToken() }));
   ws.onmessage = (ev) => onSocketMessage(JSON.parse(ev.data));
   ws.onclose = () => onSocketClose();
 }
 
+function enterGame(room, name) {
+  myRoom = room || myRoom;
+  if (name) myName = name;
+  joinedOnce = true;
+  localStorage.setItem("lastRoom", myRoom);
+  if (myName) localStorage.setItem("lastName", myName);
+  $("room-label").textContent = "방: " + myRoom;
+  $("join-screen").classList.add("hidden");
+  $("game-screen").classList.remove("hidden");
+}
+
 function onSocketMessage(msg) {
   if (msg.type === "joined") {
-    myId = msg.id;
+    myId = msg.seated ? msg.id : null;     // null => spectator
     reconnectTries = 0;
     awaitingRejoin = false;
-    $("room-label").textContent = "방: " + msg.room;
-    $("join-screen").classList.add("hidden");
-    $("game-screen").classList.remove("hidden");
+    enterGame(msg.room, msg.name);
     flashStatus("");
+  } else if (msg.type === "seated") {
+    myId = msg.id;
+    if (msg.name) { myName = msg.name; localStorage.setItem("lastName", msg.name); }
+    flashStatus("");
+  } else if (msg.type === "stood") {
+    myId = null;
   } else if (msg.type === "state") {
     state = msg.public;
     priv = msg.private;
@@ -135,21 +166,34 @@ function onSocketMessage(msg) {
 }
 
 function onSocketClose() {
-  if (myId != null && reconnectTries < 30) {
-    // We were in a game: keep trying to resume the same seat within the grace
-    // window (~30 * 2s = 60s, matching the server's DISCONNECT_GRACE).
+  if (joinedOnce && reconnectTries < 30) {
+    // Keep trying to resume within the grace window (~30 * 2s = 60s).
     reconnectTries++;
     flashStatus(`연결이 끊겼습니다. 재접속 시도 중... (${reconnectTries})`);
     setTimeout(() => openSocket(true), 2000);
-  } else if (myId != null) {
-    flashStatus("재접속 실패. 새로고침(F5) 후 같은 닉네임으로 다시 들어오세요.");
+  } else if (joinedOnce) {
+    flashStatus("재접속 실패. 새로고침(F5) 후 다시 들어오세요.");
   } else {
     flashStatus("서버 연결이 끊어졌습니다.");
   }
 }
 
+// Take a seat / leave a seat.
+$("take-seat-btn").onclick = () => {
+  const nm = (myName && myName.trim()) || $("name-input").value.trim() || "Player";
+  myName = nm;
+  ws.send(JSON.stringify({ type: "sit", name: nm, token: getToken() }));
+};
+$("stand-btn").onclick = () => {
+  if (confirm("자리에서 일어나 관전 모드로 전환할까요? (스택 기록은 남습니다)"))
+    ws.send(JSON.stringify({ type: "stand" }));
+};
+
 $("leave-btn").onclick = () => {
   reconnectTries = 99;                 // intentional leave -> do not auto-reconnect
+  joinedOnce = false;
+  localStorage.removeItem("lastRoom");
+  localStorage.removeItem("lastName");
   try { ws.send(JSON.stringify({ type: "leave" })); } catch (e) {}
   setTimeout(() => location.reload(), 120);
 };
@@ -189,6 +233,8 @@ $("apply-variant").onclick = () =>
     variant: $("variant-select").value,
     betting: $("betting-select").value,
   }));
+$("allow-ip").onchange = (e) =>
+  ws.send(JSON.stringify({ type: "set_allow_same_ip", value: e.target.checked }));
 $("show-positions").onchange = (e) => {
   showPositions = e.target.checked;
   localStorage.setItem("showPositions", showPositions ? "1" : "0");
@@ -421,8 +467,17 @@ function render() {
   $("mode-label").textContent =
     (state.variant === "holdem" && state.betting === "nl") ? "" : `${vlabel} · ${betlabel}`;
 
-  // Show/hide host-only controls based on whether I'm the host.
-  document.body.classList.toggle("not-host", state.host !== myId);
+  // Show/hide host-only controls based on whether I'm the host. A spectator
+  // (no myId) is never host — even before anyone has taken a seat (host null).
+  document.body.classList.toggle("not-host", !myId || state.host !== myId);
+  // Spectator mode = I'm connected but not seated (myId is null).
+  document.body.classList.toggle("spectating", !myId);
+  const specs = state.spectators || 0;
+  let specText = "";
+  if (!myId) specText = "👀 관전 중" + (specs > 1 ? ` · 관전 ${specs}명` : "");
+  else if (specs > 0) specText = `👀 관전 ${specs}명`;
+  $("spectator-label").textContent = specText;
+  $("spectator-label").classList.toggle("hidden", !specText);
 
   // Game start/pause toggle (host only; hidden for others via CSS).
   $("game-toggle-btn").textContent = state.auto_running ? "⏸ 게임 멈춤" : "▶ 게임 시작";
@@ -602,7 +657,9 @@ function renderControls() {
   $("deal-btn").style.display = "none";
   const isHost = state.host === myId;
   const hint = document.querySelector(".waiting-hint");
-  if (state.auto_running) {
+  if (!myId) {
+    hint.textContent = "👀 관전 중입니다. 상단의 '🪑 테이블에 앉기'를 눌러 참여하세요.";
+  } else if (state.auto_running) {
     hint.textContent = "다음 핸드를 준비하는 중...";
   } else if (isHost) {
     hint.textContent = "상단의 ▶ 게임 시작을 눌러 진행하세요. (2명 이상 필요)";
@@ -660,6 +717,8 @@ function renderSettings() {
   set("betting-select", state.betting || "nl");
   ["variant-select", "betting-select", "apply-variant"].forEach(
     (id) => ($(id).disabled = !isHost));
+  if (document.activeElement.id !== "allow-ip") $("allow-ip").checked = !!state.allow_same_ip;
+  $("allow-ip").disabled = !isHost;
   // In tournament mode the blind schedule owns the blinds, so lock the manual
   // SB/BB fields and show a note explaining why.
   const tourneyOn = !!(state.tournament && state.tournament.enabled);
@@ -915,3 +974,20 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// ---- Auto-resume ----------------------------------------------------------
+// If we were in a room last time, reconnect straight away. The browser token
+// puts us back in our seat (skipping the nickname screen); if the seat is gone
+// we land as a spectator and can press "테이블에 앉기".
+(function autoResume() {
+  const lastRoom = localStorage.getItem("lastRoom");
+  const lastName = localStorage.getItem("lastName");
+  if (lastName) $("name-input").value = lastName;
+  if (lastRoom) {
+    $("room-input").value = lastRoom;
+    myName = lastName || "Player";
+    myRoom = lastRoom;
+    reconnectTries = 0;
+    openSocket(false);
+  }
+})();

@@ -31,7 +31,7 @@ NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the nex
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v16-pause"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v17-spectator"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -64,9 +64,16 @@ class Room:
     def __init__(self, room_id: str):
         self.id = room_id
         self.game = Game(small_blind=5, big_blind=10, starting_chips=1000)
-        # websocket -> player id
-        self.connections: dict[WebSocket, str] = {}
-        self.host_id: str | None = None   # first player to join owns the "Deal" button
+        # websocket -> seated player id, or None for a spectator (watching only).
+        self.connections: dict[WebSocket, str | None] = {}
+        self.conn_name: dict[WebSocket, str] = {}   # ws -> display name (sit / chat)
+        # Access control for taking a seat:
+        #   tokens     = per-browser token -> seated pid (same browser resumes its seat)
+        #   player_ip  = seated pid -> client IP (one seat per IP unless allowed)
+        self.tokens: dict[str, str] = {}
+        self.player_ip: dict[str, str] = {}
+        self.allow_same_ip = False        # host can allow multiple seats per IP
+        self.host_id: str | None = None   # first SEATED player owns the host controls
         self.lock = asyncio.Lock()   # serialize actions so the engine sees one at a time
         # Cash-game ledger keyed by nickname. Survives a player leaving so the
         # leaderboard keeps their record. Tracks money in/out of the table.
@@ -173,15 +180,18 @@ class Room:
         self.game.log.append(f"{p.name} 연결 끊김 (재접속 대기).")
 
     def drop_player(self, pid: str):
-        """Remove a player for good (intentional leave, or grace expired)."""
+        """Remove a player for good (intentional leave/stand, or grace expired)."""
         self.disconnected.pop(pid, None)
+        self.player_ip.pop(pid, None)
+        for tk in [k for k, v in self.tokens.items() if v == pid]:
+            self.tokens.pop(tk, None)
         gone = self.game._player(pid)
         if gone and gone.name in self.ledger:
             self.ledger[gone.name]["last_stack"] = gone.chips
             self.ledger[gone.name]["active"] = False
         self.game.remove_player(pid)
-        if self.host_id == pid:   # host left -> pass the crown to anyone remaining
-            self.host_id = self.game.players[0].id if self.game.players else None
+        if self.host_id == pid:   # host left -> pass the crown to a remaining seat
+            self.host_id = self._first_seated()
 
     def reconnected_pid(self, name: str) -> str | None:
         """If a disconnected player with this nickname is still seated, their id."""
@@ -190,6 +200,33 @@ class Room:
             if p and p.name == name:
                 return pid
         return None
+
+    # ---- seating / access control --------------------------------------------
+
+    def _first_seated(self) -> str | None:
+        return self.game.players[0].id if self.game.players else None
+
+    def pid_for_token(self, token: str | None) -> str | None:
+        """The seat this browser already owns (same-browser auto-resume)."""
+        if not token:
+            return None
+        pid = self.tokens.get(token)
+        return pid if (pid and self.game._player(pid)) else None
+
+    def pid_for_ip(self, ip: str) -> str | None:
+        """An existing seat from this IP, if any (one seat per IP enforcement)."""
+        for p_id, p_ip in self.player_ip.items():
+            if p_ip == ip and self.game._player(p_id):
+                return p_id
+        return None
+
+    def conn_display_name(self, ws) -> str:
+        pid = self.connections.get(ws)
+        if pid:
+            p = self.game._player(pid)
+            if p:
+                return p.name
+        return self.conn_name.get(ws, "관전자")
 
     # ---- tournament blind clock ----------------------------------------------
 
@@ -363,6 +400,8 @@ class Room:
         public["db"] = db.enabled()
         public["version"] = APP_VERSION
         public["tournament"] = self.tournament_state()
+        public["allow_same_ip"] = self.allow_same_ip
+        public["spectators"] = sum(1 for v in self.connections.values() if v is None)
         # Seconds left for the current actor (clients run their own countdown from
         # this). While paused we send the frozen remaining so it shows but doesn't tick.
         time_left = None
@@ -404,6 +443,14 @@ class RoomManager:
 manager = RoomManager()
 
 
+def client_ip(ws: WebSocket) -> str:
+    """Real client IP, honouring the proxy header (Render sits in front of us)."""
+    xff = ws.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return ws.client.host if ws.client else "?"
+
+
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
@@ -427,51 +474,95 @@ async def websocket_endpoint(ws: WebSocket):
             mtype = msg.get("type")
 
             if mtype == "join":
+                # Joining a room = watching as a SPECTATOR. You only get a seat
+                # (cards/chips) after pressing "테이블에 앉기" (the "sit" message).
+                # Exception: if this browser already owns a seat (token) or is a
+                # dropped player within the grace window, we resume that seat.
                 room_id = (msg.get("room") or "main").strip() or "main"
                 name = (msg.get("name") or "Player").strip()[:16] or "Player"
+                token = (msg.get("token") or "").strip() or None
+                ip = client_ip(ws)
                 room = manager.get(room_id)
+                async with room.lock:
+                    room.conn_name[ws] = name
+                    bound = room.pid_for_token(token) or room.reconnected_pid(name)
+                    if bound is not None:
+                        pid = bound                     # resume the existing seat
+                        room.disconnected.pop(pid, None)
+                        if token:
+                            room.tokens[token] = pid
+                        room.player_ip[pid] = ip
+                        p = room.game._player(pid)
+                        if p and p.name in room.ledger:
+                            room.ledger[p.name]["active"] = True
+                        room.connections[ws] = pid
+                    else:
+                        pid = None                      # spectator
+                        room.connections[ws] = None
+                    seated_name = room.game._player(pid).name if pid else name
+                await ws.send_json({"type": "joined", "id": pid, "room": room_id,
+                                    "name": seated_name, "seated": pid is not None})
+                room.ensure_loop()      # make sure the timer/auto-deal clock is running
+                await room.broadcast()
+
+            elif mtype == "sit" and room and pid is None:
+                # Spectator takes a seat. IP / nickname / capacity checks happen here.
+                name = (msg.get("name") or room.conn_name.get(ws) or "Player").strip()[:16] or "Player"
+                token = (msg.get("token") or "").strip() or None
+                ip = client_ip(ws)
                 candidate = uuid.uuid4().hex[:8]
                 error = None
                 async with room.lock:
-                    recon = room.reconnected_pid(name)
+                    room.conn_name[ws] = name
                     entry = room.ledger.get(name)
-                    if recon is not None:
-                        # Reconnect within the grace window: resume the same seat,
-                        # cards and turn — do NOT create a new player.
-                        pid = recon
-                        room.disconnected.pop(pid, None)
-                        if entry is not None:
-                            entry["active"] = True
-                        room.game.log.append(f"{name} 재접속 완료.")
+                    if (not room.allow_same_ip) and room.pid_for_ip(ip) is not None:
+                        error = ("같은 네트워크(IP)에서 이미 플레이 중입니다. 같은 와이파이에서 "
+                                 "함께 치려면 방장이 설정에서 '같은 IP 허용'을 켜주세요.")
                     elif entry and entry["active"]:
                         error = "이미 사용 중인 닉네임입니다. 다른 이름을 써주세요."
                     elif room.game.is_full():
                         error = "테이블이 가득 찼습니다 (최대 9명)."
-                    elif entry is not None:
-                        # Same name returning (already fully left) -> restore stack.
-                        room.game.add_player(candidate, name, entry["last_stack"])
-                        entry["active"] = True
-                        pid = candidate
                     else:
-                        # Brand new player -> default buy-in.
-                        start = room.game.starting_chips
-                        room.game.add_player(candidate, name, start)
-                        room.ledger[name] = {"buyin": start, "added": 0, "removed": 0,
-                                             "last_stack": start, "active": True}
+                        if entry is not None:
+                            room.game.add_player(candidate, name, entry["last_stack"])
+                            entry["active"] = True
+                        else:
+                            start = room.game.starting_chips
+                            room.game.add_player(candidate, name, start)
+                            room.ledger[name] = {"buyin": start, "added": 0, "removed": 0,
+                                                 "last_stack": start, "active": True}
                         pid = candidate
-                    if error is None:
                         room.connections[ws] = pid
-                        if room.host_id is None:        # first arrival becomes host
+                        if token:
+                            room.tokens[token] = pid
+                        room.player_ip[pid] = ip
+                        if room.host_id is None:        # first seated player hosts
                             room.host_id = pid
                 if error is not None:
                     await ws.send_json({"type": "error", "message": error})
                 else:
-                    await ws.send_json({"type": "joined", "id": pid, "room": room_id})
-                    room.ensure_loop()      # make sure the timer/auto-deal clock is running
+                    await ws.send_json({"type": "seated", "id": pid, "name": name})
+                    await room.broadcast()
+
+            elif mtype == "stand" and room and pid:
+                # Leave the seat and go back to watching.
+                async with room.lock:
+                    room.drop_player(pid)
+                    room.connections[ws] = None
+                    pid = None
+                await ws.send_json({"type": "stood"})
+                await room.broadcast()
+
+            elif mtype == "set_allow_same_ip" and room:
+                if pid is None or pid != room.host_id:
+                    await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
+                else:
+                    async with room.lock:
+                        room.allow_same_ip = bool(msg.get("value"))
                     await room.broadcast()
 
             elif mtype == "start" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error",
                                         "message": "방장만 게임을 시작할 수 있습니다."})
                 else:
@@ -488,7 +579,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "pause" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error",
                                         "message": "방장만 게임을 멈출 수 있습니다."})
                 else:
@@ -531,12 +622,11 @@ async def websocket_endpoint(ws: WebSocket):
                     rec = room.game.get_replay(num)
                 await ws.send_json({"type": "replay", "record": rec})
 
-            elif mtype == "chat" and room and pid:
+            elif mtype == "chat" and room:
                 text = (msg.get("text") or "").strip()[:200]
                 if text:
                     async with room.lock:
-                        p = room.game._player(pid)
-                        name = p.name if p else "?"
+                        name = room.conn_display_name(ws)   # spectators can chat too
                         room.chat.append({"name": name, "text": text})
                         room.chat = room.chat[-100:]
                     await room.broadcast()
@@ -557,7 +647,7 @@ async def websocket_endpoint(ws: WebSocket):
                 await room.broadcast()
 
             elif mtype == "set_timeout" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
                 else:
                     secs = int(msg.get("amount") or DEFAULT_TIMEOUT)
@@ -566,7 +656,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "set_blinds" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
                 else:
                     async with room.lock:
@@ -574,7 +664,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "set_tournament" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
                 else:
                     async with room.lock:
@@ -606,7 +696,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "set_default_stack" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
                 else:
                     async with room.lock:
@@ -614,7 +704,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "set_variant" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 설정을 바꿀 수 있습니다."})
                 else:
                     async with room.lock:
@@ -622,7 +712,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await room.broadcast()
 
             elif mtype == "adjust_stack" and room:
-                if pid != room.host_id:
+                if pid is None or pid != room.host_id:
                     await ws.send_json({"type": "error", "message": "방장만 스택을 조절할 수 있습니다."})
                 else:
                     target = msg.get("target")
@@ -651,12 +741,15 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         if room and ws in room.connections:
-            leaving = room.connections.pop(ws)
+            seated_pid = room.connections.pop(ws)
+            room.conn_name.pop(ws, None)
             async with room.lock:
-                if left_clean:
-                    room.drop_player(leaving)        # intentional leave: remove now
-                else:
-                    room.mark_disconnected(leaving)  # network drop: hold the seat (grace)
+                if seated_pid is not None:           # a seated player dropped
+                    if left_clean:
+                        room.drop_player(seated_pid)        # intentional leave: remove now
+                    else:
+                        room.mark_disconnected(seated_pid)  # network drop: hold seat (grace)
+                # spectators leave no trace
             await room.broadcast()
             # Stop the clock only when nobody is connected AND nobody is waiting to
             # reconnect (otherwise the grace timer needs to keep ticking).
