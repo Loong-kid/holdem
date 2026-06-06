@@ -14,6 +14,7 @@ Writes are one-per-hand, so the tiny thread hop is negligible.
 import asyncio
 import os
 import socket
+import traceback
 from urllib.parse import unquote, urlsplit
 
 try:
@@ -122,7 +123,9 @@ async def init():
         return True
     except Exception as e:           # bad URL / unreachable -> fall back to memory
         _last_error = repr(e)
-        print("DB init failed, using in-memory storage:", repr(e), flush=True)
+        tb = traceback.format_exc()
+        _diag["tb"] = tb.splitlines()[-8:]   # last frames pinpoint where it failed
+        print("DB init failed, using in-memory storage:", tb, flush=True)
         _pool = None
         return False
 

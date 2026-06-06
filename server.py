@@ -30,7 +30,7 @@ STATIC_DIR = BASE_DIR / "static"
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-APP_VERSION = "v9-diag"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v10-tb"   # bump on deploy so we can confirm what's live
 
 
 @asynccontextmanager
