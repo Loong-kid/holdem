@@ -9,6 +9,7 @@ the cloud. A finished hand is stored as one row with its events in a JSONB colum
 import json
 import os
 import ssl
+from urllib.parse import unquote, urlsplit
 
 try:
     import asyncpg
@@ -18,21 +19,38 @@ except ImportError:           # local dev without the driver installed
 _pool = None
 
 
+def _conn_kwargs(url: str) -> dict:
+    """Split a DATABASE_URL into explicit asyncpg arguments.
+
+    We parse it ourselves (instead of letting asyncpg parse the DSN) so that
+    special characters in the password - like '!' - don't trip up the parser.
+    """
+    p = urlsplit(url)
+    return {
+        "user": unquote(p.username) if p.username else None,
+        "password": unquote(p.password) if p.password else None,
+        "host": p.hostname,
+        "port": p.port or 5432,
+        "database": (p.path or "/postgres").lstrip("/") or "postgres",
+    }
+
+
 async def _make_pool(url):
     """Create the pool, retrying with SSL for managed providers (Supabase etc.).
 
     statement_cache_size=0 keeps us compatible with connection poolers (pgbouncer)
     that Supabase and others put in front of Postgres.
     """
+    kw = _conn_kwargs(url)
     try:
         return await asyncpg.create_pool(
-            url, min_size=1, max_size=5, statement_cache_size=0)
+            min_size=1, max_size=5, statement_cache_size=0, **kw)
     except Exception:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return await asyncpg.create_pool(
-            url, min_size=1, max_size=5, statement_cache_size=0, ssl=ctx)
+            min_size=1, max_size=5, statement_cache_size=0, ssl=ctx, **kw)
 
 
 async def init():
