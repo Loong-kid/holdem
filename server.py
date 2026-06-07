@@ -31,7 +31,7 @@ NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the nex
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v17-spectator"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v18-sound"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the

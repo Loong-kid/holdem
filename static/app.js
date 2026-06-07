@@ -30,6 +30,101 @@ const DEFAULT_LEVELS = [
 
 const $ = (id) => document.getElementById(id);
 
+// ---- Sound (Web Audio synthesis, no files) --------------------------------
+// Browsers block audio until the user interacts with the page, so we lazily
+// create the AudioContext and resume it on the first click. All sounds are
+// generated from oscillators + short noise bursts — zero asset files.
+let soundOn = localStorage.getItem("soundOn") !== "0";
+let audioCtx = null;
+
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { audioCtx = null; }
+  }
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+}
+document.addEventListener("click", initAudio);   // unlock on any user gesture
+
+function tone(freq, t0, dur, type, gain) {
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = type || "sine";
+  osc.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(gain || 0.2, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g).connect(audioCtx.destination);
+  osc.start(t0); osc.stop(t0 + dur + 0.02);
+}
+
+function noise(t0, dur, gain, freq, q) {
+  const n = Math.floor(audioCtx.sampleRate * dur);
+  const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);  // decaying
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const bp = audioCtx.createBiquadFilter();
+  bp.type = "bandpass"; bp.frequency.value = freq || 1800; bp.Q.value = q || 0.8;
+  const g = audioCtx.createGain(); g.gain.value = gain || 0.25;
+  src.connect(bp).connect(g).connect(audioCtx.destination);
+  src.start(t0); src.stop(t0 + dur);
+}
+
+function sfx(name) {
+  if (!soundOn) return;
+  initAudio();
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  if (name === "deal") {            // card flick (two quick swishes)
+    noise(t, 0.11, 0.18, 2000, 0.8);
+    noise(t + 0.07, 0.10, 0.15, 2300, 0.8);
+  } else if (name === "chip") {     // bet / call / raise — chips clicking
+    noise(t, 0.05, 0.18, 3000, 2);
+    noise(t + 0.045, 0.05, 0.16, 2600, 2);
+    tone(170, t, 0.06, "square", 0.05);
+  } else if (name === "check") {    // soft tap
+    noise(t, 0.04, 0.12, 1500, 1);
+  } else if (name === "fold") {     // muck slide
+    noise(t, 0.14, 0.12, 1100, 0.6);
+  } else if (name === "turn") {     // your-turn alert (two rising tones)
+    tone(660, t, 0.12, "sine", 0.16);
+    tone(880, t + 0.12, 0.16, "sine", 0.16);
+  } else if (name === "win") {      // little victory arpeggio
+    [523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.09, 0.22, "triangle", 0.15));
+  }
+}
+
+// Detect what changed between the previous state and the new one, and play the
+// matching sound. (The server only sends state, so we infer events by diffing.)
+let sndPrev = null;
+function playSounds() {
+  if (!state) return;
+  const cards = (state.boards || []).reduce((n, b) => n + b.filter(Boolean).length, 0);
+  const myTurn = !!(priv && priv.your_turn);
+  const acts = {};
+  (state.players || []).forEach((p) => (acts[p.id] = p.last_action || ""));
+  if (sndPrev === null) {           // first frame: snapshot only, don't blast sounds
+    sndPrev = { hand: state.hand_in_progress, cards, myTurn, acts };
+    return;
+  }
+  // Dealing: a new hand started, or a new street's board cards appeared.
+  if (state.hand_in_progress && (!sndPrev.hand || cards > sndPrev.cards)) sfx("deal");
+  // Per-player action sounds (their last_action changed to something new).
+  (state.players || []).forEach((p) => {
+    const a = p.last_action || "";
+    if (a && a !== (sndPrev.acts[p.id] || "")) {
+      if (a.startsWith("fold")) sfx("fold");
+      else if (a.startsWith("check")) sfx("check");
+      else sfx("chip");             // call / bet / raise / all-in
+    }
+  });
+  if (myTurn && !sndPrev.myTurn) sfx("turn");       // it's my turn now
+  if (!state.hand_in_progress && sndPrev.hand
+      && state.results && state.results.length) sfx("win");
+  sndPrev = { hand: state.hand_in_progress, cards, myTurn, acts };
+}
+
 // Smooth client-side countdown. The server only tells us "seconds left" on each
 // state update; we tick locally so the number counts down every quarter second.
 setInterval(() => {
@@ -239,6 +334,11 @@ $("show-positions").onchange = (e) => {
   showPositions = e.target.checked;
   localStorage.setItem("showPositions", showPositions ? "1" : "0");
   if (state) render();
+};
+$("sound-on").onchange = (e) => {
+  soundOn = e.target.checked;
+  localStorage.setItem("soundOn", soundOn ? "1" : "0");
+  if (soundOn) { initAudio(); sfx("chip"); }   // unlock + play a test blip
 };
 $("apply-timeout").onclick = () =>
   ws.send(JSON.stringify({
@@ -548,6 +648,7 @@ function render() {
   renderHandRank();
   renderLog();
   renderChat();
+  playSounds();
 }
 
 // Live "what do I have" readout (e.g. "J-7 Full House"), per board in Omaha.
@@ -702,6 +803,7 @@ function renderSettings() {
     : '데이터 저장: <span class="warn">메모리(임시) ⚠️</span> (서버 재시작 시 리플레이가 사라집니다)'
       + `<div class="ver">버전 ${state.version || "?"}</div>`;
   $("show-positions").checked = showPositions;   // personal, not host-gated
+  $("sound-on").checked = soundOn;                // personal, not host-gated
   const isHost = state.host === myId;
   $("settings-note").textContent = isHost
     ? "방장으로서 아래 설정을 변경할 수 있습니다."
