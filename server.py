@@ -32,7 +32,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v20-joinscreen"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v21-broadcastfix"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -378,14 +378,21 @@ class Room:
         try:
             while True:
                 await asyncio.sleep(0.25)
-                async with self.lock:
-                    changed = self._tick()
-                    idle = not self.connections and not self.disconnected
-                if changed:
-                    await self.broadcast()
-                    await self.persist_new_hands()
-                if idle:        # nobody here and nobody to wait for -> let the loop end
-                    break
+                try:
+                    async with self.lock:
+                        changed = self._tick()
+                        idle = not self.connections and not self.disconnected
+                    if changed:
+                        await self.broadcast()
+                        await self.persist_new_hands()
+                    if idle:    # nobody here and nobody to wait for -> let the loop end
+                        break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    # One bad tick must NOT kill the ticker (that would freeze the
+                    # whole table). Log and keep going; the next tick re-broadcasts.
+                    print("run-loop tick error:", repr(e), flush=True)
         except asyncio.CancelledError:
             pass
 
@@ -434,7 +441,11 @@ class Room:
                 time_left = self.action_remaining
         public["time_left"] = time_left
         dead = []
-        for ws, pid in self.connections.items():
+        # Iterate a SNAPSHOT: send_json awaits, and a concurrent join/leave/
+        # reconnect can mutate self.connections during that await. Iterating the
+        # live dict would raise "dictionary changed size during iteration" and
+        # kill the broadcast (and, in the run loop, freeze the whole table).
+        for ws, pid in list(self.connections.items()):
             payload = {
                 "type": "state",
                 "public": public,
