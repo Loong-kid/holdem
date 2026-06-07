@@ -298,6 +298,20 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
 .waiting-bar { flex-direction: column; gap: 6px; }
 #deal-btn { width: 200px; }
 
+/* ---- Pre-action bar (queue a move before your turn) ---- */
+.preaction-bar {
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 8px 14px;
+}
+.preaction-bar .pre-label { color: #9fbfa9; font-size: 12px; margin-right: 2px; }
+.pre-btn {
+  padding: 8px 16px; border-radius: 8px;
+  border: 1px solid #3c5c48; background: #122318; color: #cfe0d6;
+  font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.pre-btn:hover { background: #1c3326; }
+.pre-btn.sel { background: var(--gold); color: #1a1a1a; border-color: var(--gold); }
+
 /* ---- Log ---- */
 /* ---- Resizable docked panels (log + chat) ---- */
 .panel {
@@ -498,7 +512,11 @@ body:not(.spectating) .spectator-only { display: none !important; }
 .rp-act { color: #9fbfa9; }
 .rp-hand { color: #8fd0ff; }
 .rp-win { color: #7CFC00; font-weight: 700; }
-.replay-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 14px; }
+.replay-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 10px; }
+.replay-board { touch-action: none; cursor: ew-resize; }
+.replay-scrub-row { margin-top: 12px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.replay-scrub { width: 100%; cursor: pointer; accent-color: var(--gold); }
+.replay-scrub-hint { font-size: 11px; color: #6f8a7c; }
 
 /* ===========================================================================
    Mobile / portrait layout (phones <= 600px wide). The desktop rules above are
@@ -560,6 +578,8 @@ body:not(.spectating) .spectator-only { display: none !important; }
   .bet-preset { flex: 1 1 auto; padding: 7px 10px; font-size: 13px; }
   .hand-rank { font-size: 13px; padding: 4px 8px; }
   .waiting-bar { padding: 8px; }
+  .preaction-bar { flex-wrap: wrap; gap: 6px; padding: 8px; }
+  .pre-btn { flex: 1 1 auto; padding: 11px 12px; font-size: 14px; }
 
   /* Log + chat become bottom-sheet drawers, toggled from the top bar (📜 / 💬),
      one at a time. Hidden until the matching body class is set. */

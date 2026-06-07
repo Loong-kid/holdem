@@ -492,6 +492,34 @@ function sendAction(action, amount = 0) {
   ws.send(JSON.stringify({ type: "action", action, amount }));
 }
 
+// ---- Pre-actions ("선행 액션") --------------------------------------------
+// Queue a move on an opponent's turn; it fires automatically (once) when it
+// becomes your turn. The three options are robust to bets changing in between:
+//   fold       -> always fold
+//   checkfold  -> check if legal, otherwise fold
+//   callany    -> call whatever the price is (or check if nothing to call)
+let preAction = null;
+document.querySelectorAll(".pre-btn").forEach((b) => {
+  b.onclick = () => {
+    preAction = (preAction === b.dataset.pre) ? null : b.dataset.pre;  // toggle
+    updatePreactionUI();
+  };
+});
+function updatePreactionUI() {
+  document.querySelectorAll(".pre-btn").forEach(
+    (b) => b.classList.toggle("sel", preAction === b.dataset.pre));
+}
+function executePreAction(a) {
+  const L = priv && priv.legal;
+  if (!L) return;
+  if (a === "fold") sendAction("fold");
+  else if (a === "checkfold") sendAction(L.can_check ? "check" : "fold");
+  else if (a === "callany") {
+    if (L.can_call) sendAction("call");
+    else if (L.can_check) sendAction("check");
+  }
+}
+
 $("raise-slider").oninput = () => ($("raise-amount").value = $("raise-slider").value);
 $("raise-amount").oninput = () => ($("raise-slider").value = $("raise-amount").value);
 
@@ -518,6 +546,18 @@ document.querySelectorAll(".bet-preset").forEach((b) => {
 // ---- Card rendering -------------------------------------------------------
 const SUIT = { s: "♠", h: "♥", d: "♦", c: "♣" };
 const RED = new Set(["h", "d"]);
+
+// Hole-card display order: by suit ♠ ♥ ♦ ♣ left-to-right, and within a suit the
+// higher rank to the left. (Display only — never affects game logic.)
+const SUIT_ORDER = { s: 0, h: 1, d: 2, c: 3 };
+const RANK_VAL = { 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, T: 10, J: 11, Q: 12, K: 13, A: 14 };
+function sortHole(cards) {
+  return [...(cards || [])].sort((a, b) => {
+    const sa = SUIT_ORDER[a[1]] ?? 9, sb = SUIT_ORDER[b[1]] ?? 9;
+    if (sa !== sb) return sa - sb;
+    return (RANK_VAL[b[0]] || 0) - (RANK_VAL[a[0]] || 0);
+  });
+}
 
 function cardEl(card, small = false) {
   const el = document.createElement("div");
@@ -688,9 +728,12 @@ function renderSeats() {
   const rx = mob ? 47 : 56;
   const ry = mob ? 45 : 50;
   ordered.forEach((p, i) => {
-    // Place seat i around an ellipse; i=0 is bottom-center (me).
+    // Place seat i around an ellipse; i=0 is bottom-center (me). Seats go
+    // CLOCKWISE as the seat index increases (which is the action order), so the
+    // turn visibly moves clockwise like a real table. (-sin mirrors the x axis:
+    // bottom -> left -> top -> right.)
     const angle = (i / n) * 2 * Math.PI;
-    const x = 50 + rx * Math.sin(angle);
+    const x = 50 - rx * Math.sin(angle);
     const y = 50 + ry * Math.cos(angle);
 
     const seat = document.createElement("div");
@@ -711,7 +754,7 @@ function renderSeats() {
       let hole = null;
       if (p.id === myId && priv && priv.hole && priv.hole.length) hole = priv.hole;
       else if (p.hole) hole = p.hole; // revealed at showdown
-      if (hole) hole.forEach((c) => cardsWrap.appendChild(cardEl(c, true)));
+      if (hole) sortHole(hole).forEach((c) => cardsWrap.appendChild(cardEl(c, true)));
       else for (let k = 0; k < hc; k++) cardsWrap.appendChild(cardEl("back", true));
     }
     seat.appendChild(cardsWrap);
@@ -775,6 +818,20 @@ function renderControls() {
   }
 
   const myTurn = priv && priv.your_turn && priv.legal && state.auto_running;
+
+  // Pre-action bar: only meaningful while I'm still a live contender in the hand.
+  const me = state.players.find((p) => p.id === myId);
+  const liveContender = state.hand_in_progress && me
+    && me.in_hand && !me.folded && !me.all_in;
+  if (!liveContender && preAction) { preAction = null; updatePreactionUI(); }
+  // Fire a queued pre-action the moment it's my turn (once).
+  if (myTurn && preAction) {
+    const a = preAction; preAction = null; updatePreactionUI();
+    executePreAction(a);
+  }
+  const showPre = liveContender && state.auto_running && !myTurn;
+  $("preaction-bar").classList.toggle("hidden", !showPre);
+
   actionBar.classList.toggle("hidden", !myTurn);
   if (!myTurn) return;
 
@@ -898,6 +955,36 @@ function renderBoard() {
 $("replay-prev").onclick = () => { replayIndex--; renderReplayFrame(); };
 $("replay-next").onclick = () => { replayIndex++; renderReplayFrame(); };
 
+// Scrub slider: drag the thumb to jump to any action in the hand.
+$("replay-scrub").oninput = (e) => {
+  replayIndex = parseInt(e.target.value, 10) || 0;
+  renderReplayFrame();
+};
+
+// Drag horizontally across the board area to scrub like a video timeline.
+(function setupReplayDrag() {
+  const board = $("replay-board");
+  if (!board) return;
+  let dragging = false;
+  const toFrame = (clientX) => {
+    if (!replayFrames.length) return;
+    const r = board.getBoundingClientRect();
+    if (r.width <= 0) return;
+    const frac = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    replayIndex = Math.round(frac * (replayFrames.length - 1));
+    renderReplayFrame();
+  };
+  board.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    try { board.setPointerCapture(e.pointerId); } catch (_) {}
+    toFrame(e.clientX);
+    e.preventDefault();
+  });
+  board.addEventListener("pointermove", (e) => { if (dragging) toFrame(e.clientX); });
+  board.addEventListener("pointerup", () => { dragging = false; });
+  board.addEventListener("pointercancel", () => { dragging = false; });
+})();
+
 function renderReplayList() {
   const box = $("replay-list");
   box.innerHTML = "";
@@ -953,7 +1040,11 @@ function buildReplayFrames(record) {
         name: p.name, seat: p.seat, hole: p.hole, stack: p.stack, pos: p.pos || "",
         bet: 0, folded: false, action: "", win: 0, hands: [],
       }));
-      boards = [[]]; pot = 0;
+      // Reserve the right number of (empty) boards from the start so the layout
+      // height stays constant — otherwise Double Board's second board appears at
+      // the flop and shoves the controls down mid-scrub.
+      boards = Array.from({ length: e.num_boards || 1 }, () => []);
+      pot = 0;
       const v = VLABEL[e.variant] ? ` · ${VLABEL[e.variant]}` : "";
       snap(`핸드 #${record.number} 시작${v} · 블라인드 ${e.sb}/${e.bb}`);
     } else if (e.type === "post") {
@@ -1008,16 +1099,19 @@ function buildReplayFrames(record) {
 }
 
 function renderReplayFrame() {
+  const scrub = $("replay-scrub");
   if (!replayFrames.length) {
     $("replay-board").innerHTML = "";
     $("replay-players").innerHTML = '<p class="muted">왼쪽에서 핸드를 선택하세요.</p>';
     $("replay-pot").textContent = "";
     $("replay-caption").textContent = "";
     $("replay-step").textContent = "";
+    if (scrub) { scrub.max = 0; scrub.value = 0; }
     return;
   }
   replayIndex = Math.max(0, Math.min(replayFrames.length - 1, replayIndex));
   const f = replayFrames[replayIndex];
+  if (scrub) { scrub.max = replayFrames.length - 1; scrub.value = replayIndex; }
 
   renderBoards($("replay-board"), f.boards);
 
@@ -1030,7 +1124,7 @@ function renderReplayFrame() {
     row.className = "rp-row" + (p.folded ? " folded" : "");
     const cards = document.createElement("div");
     cards.className = "rp-cards";
-    (p.hole || []).forEach((c) => cards.appendChild(cardEl(c, true)));
+    sortHole(p.hole || []).forEach((c) => cards.appendChild(cardEl(c, true)));
     const info = document.createElement("div");
     info.className = "rp-info";
     info.innerHTML =

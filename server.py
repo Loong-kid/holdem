@@ -32,7 +32,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v22-midhandleave"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v23-playtweaks"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the

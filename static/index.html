@@ -81,6 +81,15 @@
       </div>
     </div>
 
+    <!-- Pre-action bar: shown on your opponents' turns while you're still in the
+         hand, so you can queue a move that fires automatically when it's your turn. -->
+    <div id="preaction-bar" class="preaction-bar hidden">
+      <span class="pre-label">선행 액션</span>
+      <button type="button" class="pre-btn" data-pre="fold">폴드</button>
+      <button type="button" class="pre-btn" data-pre="checkfold">체크/폴드</button>
+      <button type="button" class="pre-btn" data-pre="callany">콜</button>
+    </div>
+
     <div id="waiting-bar" class="waiting-bar">
       <button id="deal-btn">딜 시작</button>
       <span class="waiting-hint">2명 이상 모이면 딜을 시작하세요.</span>
@@ -222,6 +231,10 @@
           <div id="replay-pot" class="replay-pot"></div>
           <div id="replay-players" class="replay-players"></div>
           <div id="replay-caption" class="replay-caption"></div>
+          <div class="replay-scrub-row">
+            <input id="replay-scrub" class="replay-scrub" type="range" min="0" max="0" value="0" />
+            <span class="replay-scrub-hint">슬라이더를 끌거나 보드를 드래그해서 넘길 수 있어요</span>
+          </div>
           <div class="replay-controls">
             <button id="replay-prev" class="mini-btn">◀ 이전</button>
             <span id="replay-step" class="muted"></span>

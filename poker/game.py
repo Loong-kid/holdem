@@ -114,6 +114,10 @@ class Game:
         self.pot = 0
         self.current_bet = 0              # highest bet to match this round
         self.min_raise = big_blind        # smallest legal raise increment
+        # The big blind this hand STARTED with. Mid-hand blind changes (manual or
+        # tournament) must not shrink the live pot's legal raises, so the in-hand
+        # min-raise resets use this, not the possibly-just-raised self.bb.
+        self.hand_bb = big_blind
         self.to_act: int | None = None    # seat index whose turn it is
         self.hand_in_progress = False
         self.log: list[str] = []          # text feed for the UI
@@ -297,6 +301,7 @@ class Game:
         self.pot = 0
         self.current_bet = 0
         self.min_raise = self.bb
+        self.hand_bb = self.bb            # lock this hand's BB (mid-hand blind changes won't affect it)
         self.phase = "preflop"
         self.hand_in_progress = True
         self.awaiting_runout = False
@@ -527,7 +532,7 @@ class Game:
             if not p.all_in:
                 p.has_acted = False
         self.current_bet = 0
-        self.min_raise = self.bb
+        self.min_raise = self.hand_bb     # use the hand's starting BB, not a mid-hand change
         self.to_act = None
         self._next_street()
 
