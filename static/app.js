@@ -46,29 +46,36 @@ function initAudio() {
 }
 document.addEventListener("click", initAudio);   // unlock on any user gesture
 
-function tone(freq, t0, dur, type, gain) {
-  const osc = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  osc.type = type || "sine";
+const SVOL = 0.7;   // master volume (matches the preview's default level)
+
+// Plucked note: sharp attack, fast exponential decay = clean blip (no noise).
+function pluck(freq, t0, dur, gain, type) {
+  const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+  osc.type = type || "triangle";
   osc.frequency.setValueAtTime(freq, t0);
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(gain || 0.2, t0 + 0.01);
+  g.gain.setValueAtTime((gain || 0.2) * SVOL, t0);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   osc.connect(g).connect(audioCtx.destination);
   osc.start(t0); osc.stop(t0 + dur + 0.02);
 }
 
-function noise(t0, dur, gain, freq, q) {
-  const n = Math.floor(audioCtx.sampleRate * dur);
-  const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);  // decaying
-  const src = audioCtx.createBufferSource(); src.buffer = buf;
-  const bp = audioCtx.createBiquadFilter();
-  bp.type = "bandpass"; bp.frequency.value = freq || 1800; bp.Q.value = q || 0.8;
-  const g = audioCtx.createGain(); g.gain.value = gain || 0.25;
-  src.connect(bp).connect(g).connect(audioCtx.destination);
-  src.start(t0); src.stop(t0 + dur);
+// Bell/ding: fundamental + inharmonic partials, each decaying = clear bell tone.
+function bell(freq, t0, dur, gain) {
+  [[1, 1], [2.01, 0.45], [3.0, 0.22], [4.7, 0.1]].forEach(([r, amp]) => {
+    const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+    osc.type = "sine"; osc.frequency.setValueAtTime(freq * r, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime((gain || 0.2) * amp * SVOL, t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(t0); osc.stop(t0 + dur + 0.02);
+  });
+}
+
+// Crisp tonal knock: low body + a quick high harmonic for clarity.
+function knock(freq, t0, gain) {
+  pluck(freq, t0, 0.07, gain || 0.22, "triangle");
+  pluck(freq * 3.2, t0, 0.03, (gain || 0.22) * 0.35, "sine");
 }
 
 function sfx(name) {
@@ -76,22 +83,18 @@ function sfx(name) {
   initAudio();
   if (!audioCtx) return;
   const t = audioCtx.currentTime;
-  if (name === "deal") {            // card flick (two quick swishes)
-    noise(t, 0.11, 0.18, 2000, 0.8);
-    noise(t + 0.07, 0.10, 0.15, 2300, 0.8);
-  } else if (name === "chip") {     // bet / call / raise — chips clicking
-    noise(t, 0.05, 0.18, 3000, 2);
-    noise(t + 0.045, 0.05, 0.16, 2600, 2);
-    tone(170, t, 0.06, "square", 0.05);
-  } else if (name === "check") {    // soft tap
-    noise(t, 0.04, 0.12, 1500, 1);
-  } else if (name === "fold") {     // muck slide
-    noise(t, 0.14, 0.12, 1100, 0.6);
-  } else if (name === "turn") {     // your-turn alert (two rising tones)
-    tone(660, t, 0.12, "sine", 0.16);
-    tone(880, t + 0.12, 0.16, "sine", 0.16);
-  } else if (name === "win") {      // little victory arpeggio
-    [523, 659, 784, 1047].forEach((f, i) => tone(f, t + i * 0.09, 0.22, "triangle", 0.15));
+  if (name === "deal") {                 // card dealt / board street
+    pluck(740, t, 0.10, 0.16, "triangle");
+  } else if (name === "chip") {          // bet / call / raise / all-in
+    bell(700, t, 0.38, 0.18);
+  } else if (name === "check") {         // table knock
+    knock(210, t, 0.22); knock(210, t + 0.14, 0.20);
+  } else if (name === "fold") {          // clean descend
+    pluck(700, t, 0.08, 0.14); pluck(440, t + 0.09, 0.15, 0.13);
+  } else if (name === "turn") {          // your-turn bell
+    bell(820, t, 0.5, 0.16);
+  } else if (name === "win") {           // soft chime
+    bell(659, t, 0.55, 0.14); bell(988, t + 0.14, 0.6, 0.12);
   }
 }
 
@@ -638,6 +641,8 @@ function render() {
     $("status").textContent = "딜을 기다리는 중...";
   } else if (!state.auto_running) {
     $("status").textContent = "⏸ 일시정지 — 방장이 재개하면 이어서 진행됩니다.";
+  } else if (state.runout) {
+    $("status").textContent = "🃏 올인! 보드를 공개하는 중...";
   } else {
     const actor = state.players.find((p) => p.id === state.to_act);
     $("status").textContent = actor ? `${actor.name} 차례` : "";

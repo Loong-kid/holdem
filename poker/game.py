@@ -123,6 +123,9 @@ class Game:
         self.history: list[dict] = []     # events of the current hand
         self.hand_log: list[dict] = []    # finished hands (for replay), most recent last
         self.hand_count = 0               # how many hands have completed
+        # All-in run-out: when nobody can act, board streets are revealed one at a
+        # time (paced by the Room) instead of all at once, so it's watchable.
+        self.awaiting_runout = False
 
     # ---- variant helpers ------------------------------------------------------
 
@@ -285,6 +288,7 @@ class Game:
         self.min_raise = self.bb
         self.phase = "preflop"
         self.hand_in_progress = True
+        self.awaiting_runout = False
         self.results = []
         self.board_winners = []
         self.revealed = {}
@@ -540,15 +544,27 @@ class Game:
         self.history.append({"type": "street", "street": self.phase,
                              "boards": [list(b) for b in self.boards]})
 
-        # If at most one player can still act, no more betting is possible -
-        # deal the rest of the board(s) straight through to showdown.
+        # If at most one player can still act, no more betting is possible. Rather
+        # than dealing the rest of the board instantly, pause here and let the Room
+        # reveal the next street after a short delay (so an all-in is watchable).
         can_act = [p for p in self.players
                    if p.in_hand and not p.folded and not p.all_in]
         if len(can_act) <= 1:
-            self._next_street()
+            self.awaiting_runout = True
+            self.to_act = None
             return
 
+        self.awaiting_runout = False
         self._set_first_actor(self._next_occupied(self.button))
+
+    def deal_next_runout(self):
+        """Reveal the next board street during an all-in run-out (Room-paced).
+
+        Calling _next_street advances one street; it either sets awaiting_runout
+        again (more streets to come) or, at the river, goes to showdown.
+        """
+        self.awaiting_runout = False
+        self._next_street()
 
     # ---- ending a hand --------------------------------------------------------
 
@@ -661,6 +677,7 @@ class Game:
 
     def _finish_hand(self):
         self.hand_in_progress = False
+        self.awaiting_runout = False
         self.to_act = None
         if self.phase != "showdown":
             self.phase = "waiting"
@@ -739,6 +756,7 @@ class Game:
                        if self.players and self.button < len(self.players) else None),
             "to_act": to_act_id,
             "hand_in_progress": self.hand_in_progress,
+            "runout": self.awaiting_runout,
             "results": self.results,
             "log": self.log[-30:],
             "players": self._players_public(),

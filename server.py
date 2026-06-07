@@ -28,10 +28,11 @@ BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
+RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v18-sound"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v19-runout"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -95,6 +96,7 @@ class Room:
         self.action_deadline: float | None = None   # monotonic time the current actor must act by
         self.action_remaining: float | None = None  # frozen seconds left while paused
         self.next_hand_at: float | None = None      # monotonic time to deal the next hand
+        self.runout_at: float | None = None          # monotonic time to reveal the next street
         self.loop_task: asyncio.Task | None = None   # background ticker
         self.persisted_count = 0                     # hands already written to the DB
 
@@ -165,6 +167,7 @@ class Room:
         self.action_deadline = None
         self.action_remaining = None
         self.next_hand_at = None
+        self.runout_at = None
 
     # ---- disconnect / reconnect ----------------------------------------------
 
@@ -333,11 +336,30 @@ class Room:
 
         if g.hand_in_progress and g.to_act is not None:
             self.next_hand_at = None
+            self.runout_at = None
             if self.action_deadline is not None and now >= self.action_deadline:
                 self._auto_act()
                 self.arm_timer()     # arm for the next actor (or clear if hand ended)
                 return True
             return changed
+
+        # All-in run-out: reveal the next board street after a short delay so the
+        # flop/turn/river are watchable instead of flashing by at once.
+        if g.hand_in_progress and g.awaiting_runout:
+            self.action_deadline = None
+            self.next_hand_at = None
+            if not self.auto_running:          # paused -> hold the run-out too
+                return changed
+            if self.runout_at is None:
+                self.runout_at = now + RUNOUT_DELAY
+            elif now >= self.runout_at:
+                g.deal_next_runout()
+                self.runout_at = None
+                self.arm_timer()
+                return True
+            return changed
+        self.runout_at = None
+
         # Between hands: auto-deal the next one if the table is running.
         self.action_deadline = None
         if self.auto_running and g.can_start():
