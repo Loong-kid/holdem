@@ -48,12 +48,13 @@ document.addEventListener("click", initAudio);   // unlock on any user gesture
 
 const SVOL = 0.7;   // master volume (matches the preview's default level)
 
-// Plucked note: sharp attack, fast exponential decay = clean blip (no noise).
+// Plucked note: quick (click-free) attack, fast exponential decay = clean blip.
 function pluck(freq, t0, dur, gain, type) {
   const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
   osc.type = type || "triangle";
   osc.frequency.setValueAtTime(freq, t0);
-  g.gain.setValueAtTime((gain || 0.2) * SVOL, t0);
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime((gain || 0.2) * SVOL, t0 + 0.004);  // ~4ms attack, no click
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   osc.connect(g).connect(audioCtx.destination);
   osc.start(t0); osc.stop(t0 + dur + 0.02);
@@ -1082,19 +1083,15 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---- Auto-resume ----------------------------------------------------------
-// If we were in a room last time, reconnect straight away. The browser token
-// puts us back in our seat (skipping the nickname screen); if the seat is gone
-// we land as a spectator and can press "테이블에 앉기".
-(function autoResume() {
-  const lastRoom = localStorage.getItem("lastRoom");
+// ---- Prefill last name/room ----------------------------------------------
+// Show the join screen on a fresh page load (so the user can change their
+// nickname/room first), but pre-fill the inputs with last time's values for
+// convenience. Pressing 입장 still resumes the same seat via the browser token.
+// (Mid-session network drops are handled separately by onSocketClose, which
+// auto-reconnects without showing this screen.)
+(function prefillJoin() {
   const lastName = localStorage.getItem("lastName");
+  const lastRoom = localStorage.getItem("lastRoom");
   if (lastName) $("name-input").value = lastName;
-  if (lastRoom) {
-    $("room-input").value = lastRoom;
-    myName = lastName || "Player";
-    myRoom = lastRoom;
-    reconnectTries = 0;
-    openSocket(false);
-  }
+  if (lastRoom) $("room-input").value = lastRoom;
 })();
