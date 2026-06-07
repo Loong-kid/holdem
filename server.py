@@ -32,7 +32,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v21-broadcastfix"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v22-midhandleave"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -207,7 +207,10 @@ class Room:
     # ---- seating / access control --------------------------------------------
 
     def _first_seated(self) -> str | None:
-        return self.game.players[0].id if self.game.players else None
+        for p in self.game.players:
+            if not p.pending_removal:
+                return p.id
+        return None
 
     def pid_for_token(self, token: str | None) -> str | None:
         """The seat this browser already owns (same-browser auto-resume)."""
@@ -301,6 +304,8 @@ class Room:
         """Time ran out: act for the player automatically (check, else fold)."""
         g = self.game
         if not g.hand_in_progress or g.to_act is None:
+            return
+        if not (0 <= g.to_act < len(g.players)):   # stale index guard (defensive)
             return
         pid = g.players[g.to_act].id
         legal = g.legal_actions(pid)

@@ -79,6 +79,7 @@ class Player:
         self.name = name
         self.chips = chips
         self.sitting_out = False   # persists across hands: skip dealing but still owe blinds
+        self.pending_removal = False  # left mid-hand; purge at hand end (keeps seat indices valid)
         self.reset_for_hand(dealt_in=False)
 
     def reset_for_hand(self, dealt_in: bool):
@@ -240,15 +241,25 @@ class Game:
         return amt, None
 
     def remove_player(self, pid: str):
-        p = self._player(pid)
-        if not p:
+        seat = self._seat(pid)
+        if seat is None:
             return
-        # If they were in a live hand, treat it as a fold so the game can continue.
-        if self.hand_in_progress and p.in_hand and not p.folded:
-            p.folded = True
-            p.has_acted = True
-        self.players = [x for x in self.players if x.id != pid]
-        self.log.append(f"{p.name} left the table.")
+        p = self.players[seat]
+        if self.hand_in_progress:
+            # Do NOT shrink the seat list mid-hand: to_act / button are list
+            # indices and would become stale (-> IndexError on the next timer).
+            # Fold them, mark for removal, and purge when the hand ends.
+            was_their_turn = (self.to_act == seat)
+            if p.in_hand and not p.folded:
+                p.folded = True
+                p.has_acted = True
+            p.pending_removal = True
+            self.log.append(f"{p.name} left the table.")
+            if was_their_turn:
+                self._after_action()   # advance the turn just like a fold
+        else:
+            self.players.pop(seat)
+            self.log.append(f"{p.name} left the table.")
 
     def _next_occupied(self, idx: int) -> int:
         """Next seat (wrapping) that has a player in the current hand."""
@@ -679,6 +690,11 @@ class Game:
         self.hand_in_progress = False
         self.awaiting_runout = False
         self.to_act = None
+        # Now that the hand is over it is safe to drop players who left mid-hand.
+        if any(p.pending_removal for p in self.players):
+            self.players = [p for p in self.players if not p.pending_removal]
+            if self.players:
+                self.button %= len(self.players)
         if self.phase != "showdown":
             self.phase = "waiting"
         # Archive this hand for replay (keep memory bounded to the last 50).
