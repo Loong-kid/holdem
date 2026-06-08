@@ -23,3 +23,13 @@ holdem_*.csv
 *_rows.csv
 test_export*.json
 mock_export*.json
+
+# GTO range charts — RYE PDF originals are paid content, keep out of the repo.
+# chart_db.json (the extracted open/fold matrices) IS committed so the deployed
+# server can score — private repo, and the ranges are common-knowledge.
+레인지 차트/
+extract_report.txt
+fake_export*.json
+gto_*_out.txt
+gto_mock.json
+verify_gto*.*

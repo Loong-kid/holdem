@@ -34,12 +34,21 @@ from poker.game import Game, summarize_hand
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
 
+# GTO 피드백(프리플랍 RFI) — chart_db.json이 있으면 활성. 없으면 /gto가 비활성 응답.
+CHART_DB = BASE_DIR / "chart_db.json"
+try:
+    from gto.score import build_report
+    GTO_OK = CHART_DB.exists()
+except Exception:
+    build_report = None
+    GTO_OK = False
+
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v25-statspage"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v26-gto"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -513,6 +522,22 @@ async def health():
     return {**db.status(), "version": APP_VERSION}
 
 
+async def _room_hands(room: str) -> list[dict]:
+    """All stored hands for a room (DB when configured, else live in-memory log)."""
+    if db.enabled():
+        return await db.export_hands(room)
+    r = manager.rooms.get(room)
+    hands = []
+    if r:
+        for rec in r.game.hand_log:
+            hands.append({
+                "id": rec["number"], "room": room,
+                "hand_number": rec["number"], "played_at": None,
+                "title": summarize_hand(rec), "events": rec["events"],
+            })
+    return hands
+
+
 @app.get("/export")
 async def export(room: str = "main"):
     """Download every stored hand for a room as one JSON file (for analysis).
@@ -521,18 +546,7 @@ async def export(room: str = "main"):
     hand log of the live room. The file is the full event stream per hand, so it
     has the same fidelity as the replay viewer.
     """
-    if db.enabled():
-        hands = await db.export_hands(room)
-    else:
-        r = manager.rooms.get(room)
-        hands = []
-        if r:
-            for rec in r.game.hand_log:
-                hands.append({
-                    "id": rec["number"], "room": room,
-                    "hand_number": rec["number"], "played_at": None,
-                    "title": summarize_hand(rec), "events": rec["events"],
-                })
+    hands = await _room_hands(room)
     payload = {"room": room, "exported_at": _now_iso(),
                "count": len(hands), "hands": hands}
     body = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -540,6 +554,20 @@ async def export(room: str = "main"):
     return Response(
         content=body, media_type="application/json; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@app.get("/gto")
+async def gto(room: str = "main"):
+    """Preflop RFI GTO feedback for a room: scores each open/fold against the
+    RYE charts and returns per-decision verdicts + the reference range matrices.
+    Player filtering / aggregation is done client-side from `rows`.
+    """
+    if not GTO_OK:
+        return {"ok": False, "error": "GTO 차트 데이터(chart_db.json)가 서버에 없습니다."}
+    hands = await _room_hands(room)
+    export_obj = {"room": room, "hands": hands}
+    report = await asyncio.to_thread(build_report, export_obj, str(CHART_DB))
+    return {"ok": True, "room": room, "count": len(hands), **report}
 
 
 @app.websocket("/ws")

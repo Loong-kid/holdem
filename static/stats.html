@@ -46,6 +46,27 @@
   .tag { background:var(--gold); color:#1a1a1a; border-radius:4px; padding:1px 5px;
          font-size:11px; font-weight:800; }
   #msg { color:#ffb347; margin:20px 0; }
+  /* tabs */
+  .tabs { display:flex; gap:6px; margin-bottom:18px; border-bottom:1px solid #2c4a38; }
+  .tab { padding:9px 16px; cursor:pointer; border:none; background:none; color:#9fbfa9;
+         font-weight:700; font-size:14px; border-bottom:2px solid transparent; }
+  .tab.active { color:var(--gold); border-bottom-color:var(--gold); }
+  /* gto */
+  .verdict-loose { color:#ff7a7a; font-weight:700; }
+  .verdict-tight { color:#8fb6ff; font-weight:700; }
+  .mat-legend { font-size:12px; color:#88a596; margin:2px 0 12px; line-height:1.6; }
+  .matrix-wrap { display:flex; flex-wrap:wrap; gap:18px; }
+  .matrix-box { background:#16271d; border:1px solid #2c4a38; border-radius:10px; padding:12px; }
+  .matrix-box h3 { margin:0 0 8px; font-size:13px; color:#d8e8de; }
+  table.matrix { width:auto; border-radius:0; background:none; }
+  .matrix td { width:27px; height:27px; padding:0; text-align:center; font-size:9px;
+               border:1px solid #0e1c14; color:#9fc3ad; background:#1a2c20; white-space:nowrap; }
+  .matrix td.open { background:#2f6b45; color:#eaffea; }
+  .matrix td.mine-loose { background:#b13030; color:#fff; font-weight:800; }
+  .matrix td.mine-tight { outline:2px solid #5b8dff; outline-offset:-2px; }
+  .matrix td.mine-ok { outline:2px solid #7CFC00; outline-offset:-2px; }
+  select { font-size:13px; border-radius:7px; border:1px solid #3c5c48;
+           background:#122318; color:#eef3f0; padding:7px 10px; }
 </style>
 </head>
 <body>
@@ -61,13 +82,42 @@
 </header>
 <main>
   <div id="msg">데이터를 불러오는 중...</div>
-  <div id="report" style="display:none">
-    <div class="cards" id="summary"></div>
-    <h2>플레이어 통계 <span class="muted">(헤더 클릭 = 정렬)</span></h2>
-    <table id="players"><thead></thead><tbody></tbody></table>
-    <p class="hint">VPIP=프리플랍 자발적 참여율 · PFR=프리플랍 레이즈율 · WTSD=쇼다운 도달률 · W$SD=쇼다운 승률 · 순익=획득−투입</p>
-    <h2>핸드별 상세 <span class="muted">(player × hand)</span></h2>
-    <div class="rows-wrap"><table id="rows"><thead></thead><tbody></tbody></table></div>
+  <div id="content" style="display:none">
+    <div class="tabs">
+      <button class="tab active" data-tab="stats">📊 통계</button>
+      <button class="tab" data-tab="gto">🎯 GTO 피드백 (프리플랍 RFI)</button>
+    </div>
+
+    <div id="report">
+      <div class="cards" id="summary"></div>
+      <h2>플레이어 통계 <span class="muted">(헤더 클릭 = 정렬)</span></h2>
+      <table id="players"><thead></thead><tbody></tbody></table>
+      <p class="hint">VPIP=프리플랍 자발적 참여율 · PFR=프리플랍 레이즈율 · WTSD=쇼다운 도달률 · W$SD=쇼다운 승률 · 순익=획득−투입</p>
+      <h2>핸드별 상세 <span class="muted">(player × hand)</span></h2>
+      <div class="rows-wrap"><table id="rows"><thead></thead><tbody></tbody></table></div>
+    </div>
+
+    <div id="gto-report" style="display:none">
+      <div style="margin-bottom:12px">
+        <label class="muted">플레이어 <select id="gto-player"></select></label>
+        <span class="muted" style="margin-left:10px">RFI = 앞이 전부 폴드라 내가 첫 오픈 결정을 하는 스팟. RYE 차트 기준 채점.</span>
+      </div>
+      <div id="gto-msg" class="muted">GTO 분석을 불러오는 중...</div>
+      <div id="gto-body" style="display:none">
+        <div class="cards" id="gto-summary"></div>
+        <h2>포지션별 RFI</h2>
+        <table id="gto-pos"><thead></thead><tbody></tbody></table>
+        <h2>정답 레인지 vs 내 플레이</h2>
+        <div class="mat-legend">
+          🟩 차트 오픈레인지 &nbsp;·&nbsp; <span style="color:#ff7a7a">🟥 루즈오픈</span>(차트 밖인데 오픈) &nbsp;·&nbsp;
+          <span style="color:#8fb6ff">🔷 타이트폴드</span>(차트 안인데 폴드) &nbsp;·&nbsp;
+          <span style="color:#7CFC00">🟢 정상오픈</span> &nbsp;·&nbsp; 셀에 마우스 = 액션/판정
+        </div>
+        <div class="matrix-wrap" id="gto-matrix"></div>
+        <h2>핸드별 RFI 판정 <span class="muted">(리크 먼저 정렬)</span></h2>
+        <div class="rows-wrap"><table id="gto-rows"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </div>
   </div>
 </main>
 <script>
@@ -224,8 +274,9 @@ document.getElementById("csv-players").onclick = () =>
 async function load() {
   ROOM = document.getElementById("room").value.trim() || "main";
   document.getElementById("raw").href = "/export?room=" + encodeURIComponent(ROOM);
-  const msg = document.getElementById("msg"), rep = document.getElementById("report");
+  const msg = document.getElementById("msg"), rep = document.getElementById("content");
   msg.style.display="block"; rep.style.display="none"; msg.textContent="데이터를 불러오는 중...";
+  GTO_LOADED = false;
   try {
     const res = await fetch("/export?room=" + encodeURIComponent(ROOM));
     const data = await res.json();
@@ -235,10 +286,123 @@ async function load() {
     PLAYERS = aggregate(ROWS);
     renderSummary(hands.length); renderPlayers(); renderRows();
     msg.style.display="none"; rep.style.display="block";
+    document.querySelector('.tab[data-tab="stats"]').click();
   } catch (e) {
     msg.textContent = "불러오기 실패: " + e;
   }
 }
+
+// --- GTO feedback tab ------------------------------------------------------
+let GTO_LOADED = false, GTO_DATA = null;
+const R13 = "AKQJT98765432";
+const stackTier = bb => bb==null ? null : bb>=40 ? "40-100BB" : bb>=20 ? "20-40BB" : "10-20BB";
+function cellHand(i,j){ return i===j ? R13[i]+R13[i] : i<j ? R13[i]+R13[j]+"s" : R13[j]+R13[i]+"o"; }
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  const tab = t.dataset.tab;
+  document.getElementById("report").style.display = tab==="stats" ? "block" : "none";
+  document.getElementById("gto-report").style.display = tab==="gto" ? "block" : "none";
+  if (tab==="gto" && !GTO_LOADED) loadGTO();
+});
+
+async function loadGTO() {
+  const gm = document.getElementById("gto-msg"), gb = document.getElementById("gto-body");
+  gm.style.display="block"; gb.style.display="none"; gm.textContent="GTO 분석을 불러오는 중...";
+  try {
+    const res = await fetch("/gto?room=" + encodeURIComponent(ROOM));
+    const data = await res.json();
+    if (!data.ok) { gm.textContent = "GTO 비활성: " + (data.error || "알 수 없는 오류"); return; }
+    if (!data.rows.length) { gm.textContent = "채점할 RFI 스팟이 없습니다 (홀덤 핸드 필요)."; return; }
+    GTO_DATA = data; GTO_LOADED = true;
+    const sel = document.getElementById("gto-player");
+    sel.innerHTML = '<option value="">전체</option>' +
+      data.players.map(p => `<option>${p}</option>`).join("");
+    sel.onchange = () => renderGTO(sel.value);
+    renderGTO("");
+    gm.style.display="none"; gb.style.display="block";
+  } catch (e) { gm.textContent = "GTO 불러오기 실패: " + e; }
+}
+
+const VLABEL = {ok_open:"✅ 정상오픈", ok_fold:"✅ 정상폴드", too_loose:"🔴 루즈오픈",
+  too_tight:"🔵 타이트폴드", limp:"🟡 림프"};
+const VORDER = {too_loose:0, too_tight:1, limp:2, ok_open:3, ok_fold:5, skip:6};
+
+function renderGTO(player) {
+  const rows = GTO_DATA.rows.filter(r => !player || r.player === player);
+  const scored = rows.filter(r => !r.verdict.startsWith("skip") && r.verdict !== "limp");
+  const ok = scored.filter(r => r.verdict.startsWith("ok")).length;
+  const loose = scored.filter(r => r.verdict === "too_loose").length;
+  const tight = scored.filter(r => r.verdict === "too_tight").length;
+  const limps = rows.filter(r => r.verdict === "limp").length;
+  const acc = scored.length ? (ok/scored.length*100).toFixed(0)+"%" : "-";
+
+  document.getElementById("gto-summary").innerHTML = `
+    <div class="stat-card"><div class="k">RFI 결정</div><div class="v">${rows.length}</div></div>
+    <div class="stat-card"><div class="k">GTO 일치</div><div class="v">${acc}</div></div>
+    <div class="stat-card"><div class="k">🔴 루즈오픈</div><div class="v">${loose}</div></div>
+    <div class="stat-card"><div class="k">🔵 타이트폴드</div><div class="v">${tight}</div></div>
+    <div class="stat-card"><div class="k">🟡 림프</div><div class="v">${limps}</div></div>`;
+
+  // 포지션별
+  const order = ["UTG","UTG+1","UTG+2","LJ","HJ","CO","BTN"];
+  const byPos = {}; scored.forEach(r => (byPos[r.pos] = byPos[r.pos] || []).push(r));
+  const ph = ["포지션","결정수","내오픈","🔴루즈","🔵타이트","일치율"];
+  document.querySelector("#gto-pos thead").innerHTML = "<tr>" + ph.map(h=>`<th>${h}</th>`).join("") + "</tr>";
+  document.querySelector("#gto-pos tbody").innerHTML = order.filter(p=>byPos[p]).map(p => {
+    const rs = byPos[p];
+    const myOpen = rs.filter(r => r.verdict==="ok_open" || r.verdict==="too_loose").length;
+    const ll = rs.filter(r => r.verdict==="too_loose").length;
+    const tt = rs.filter(r => r.verdict==="too_tight").length;
+    const okp = rs.filter(r => r.verdict.startsWith("ok")).length;
+    return `<tr><td class="pos">${p}</td><td>${rs.length}</td><td>${myOpen}</td>
+      <td class="verdict-loose">${ll||""}</td><td class="verdict-tight">${tt||""}</td>
+      <td>${(okp/rs.length*100).toFixed(0)}%</td></tr>`;
+  }).join("");
+
+  // 레인지 매트릭스 (내 플레이 오버레이)
+  const mine = {};
+  rows.forEach(r => {
+    const tier = stackTier(r.eff_bb); if (!tier || !r.hand) return;
+    const key = r.pos + "|" + tier;
+    (mine[key] = mine[key] || {})[r.hand] = r.verdict;
+  });
+  const wrap = document.getElementById("gto-matrix"); wrap.innerHTML = "";
+  Object.keys(GTO_DATA.charts).sort().forEach(key => {
+    const ch = GTO_DATA.charts[key], acts = ch.actions, myk = mine[key] || {};
+    let html = `<div class="matrix-box"><h3>${ch.pos} <span class="muted">(${ch.tier})</span></h3><table class="matrix">`;
+    for (let i=0;i<13;i++) {
+      html += "<tr>";
+      for (let j=0;j<13;j++) {
+        const h = cellHand(i,j), isOpen = h in acts, v = myk[h];
+        let cls = isOpen ? "open" : "";
+        if (v==="too_loose") cls += " mine-loose";
+        else if (v==="too_tight") cls += " mine-tight";
+        else if (v==="ok_open") cls += " mine-ok";
+        const tip = h + (isOpen ? " · "+acts[h] : "") + (v ? " · 내:"+(VLABEL[v]||v) : "");
+        html += `<td class="${cls}" title="${tip}">${h}</td>`;
+      }
+      html += "</tr>";
+    }
+    html += "</table></div>"; wrap.insertAdjacentHTML("beforeend", html);
+  });
+
+  // 핸드별 판정 (리크 먼저)
+  const hc = [["hand_number","#"],["player","플레이어"],["pos","포지션"],["hand","핸드"],
+    ["eff_bb","유효bb"],["action","액션"],["verdict","판정"]];
+  document.querySelector("#gto-rows thead").innerHTML = "<tr>" + hc.map(([,t])=>`<th>${t}</th>`).join("") + "</tr>";
+  const sorted = [...rows].sort((a,b) =>
+    (VORDER[a.verdict.split(":")[0]] ?? 4) - (VORDER[b.verdict.split(":")[0]] ?? 4)
+    || (a.hand_number||0) - (b.hand_number||0));
+  document.querySelector("#gto-rows tbody").innerHTML = sorted.map(r =>
+    "<tr>" + hc.map(([k]) => {
+      if (k==="verdict") return `<td>${VLABEL[r.verdict] || "➖"}</td>`;
+      if (k==="pos") return `<td class="pos">${r.pos}</td>`;
+      return `<td>${r[k] ?? ""}</td>`;
+    }).join("") + "</tr>").join("");
+}
+
 document.getElementById("load").onclick = load;
 document.getElementById("room").addEventListener("keydown", e => { if (e.key==="Enter") load(); });
 load();
