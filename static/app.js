@@ -952,6 +952,17 @@ function renderBoard() {
 }
 
 // ---- Replay viewer --------------------------------------------------------
+// Download every stored hand for this room as one JSON file (for analysis).
+$("replay-download").onclick = () => {
+  const room = encodeURIComponent(myRoom || "main");
+  const a = document.createElement("a");
+  a.href = "/export?room=" + room;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+};
+
 $("replay-prev").onclick = () => { replayIndex--; renderReplayFrame(); };
 $("replay-next").onclick = () => { replayIndex++; renderReplayFrame(); };
 

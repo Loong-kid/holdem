@@ -420,6 +420,12 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 .modal-head { display: flex; align-items: center; justify-content: space-between; }
+.modal-head-actions { display: flex; align-items: center; gap: 10px; }
+.mini-btn.ghost {
+  background: transparent; color: var(--gold);
+  border: 1px solid #5a4a22; font-weight: 700;
+}
+.mini-btn.ghost:hover { background: rgba(232, 196, 104, 0.12); filter: none; }
 .modal-head h2 { margin: 0; color: var(--gold); font-size: 19px; }
 .modal-close {
   background: transparent; border: none; color: #ccc;

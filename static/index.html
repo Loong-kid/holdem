@@ -222,7 +222,10 @@
     <div class="modal-box wide">
       <div class="modal-head">
         <h2>🎬 리플레이</h2>
-        <button class="modal-close" data-close="replay-modal">✕</button>
+        <div class="modal-head-actions">
+          <button id="replay-download" class="mini-btn ghost" title="이 방의 모든 핸드를 JSON 한 파일로 받아 분석에 사용하세요">⬇ 전체 JSON</button>
+          <button class="modal-close" data-close="replay-modal">✕</button>
+        </div>
       </div>
       <div class="replay-layout">
         <div id="replay-list" class="replay-list"></div>

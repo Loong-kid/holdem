@@ -196,6 +196,34 @@ async def list_hands(room: str, limit: int = 30) -> list[dict]:
     return [{"number": r[0], "title": r[1]} for r in rows]
 
 
+async def export_hands(room: str | None = None) -> list[dict]:
+    """All stored hands (full events) for one room, or every room if room is None.
+
+    Returns oldest-first so a replay/analysis reads in chronological order.
+    """
+    if not _pool:
+        return []
+
+    def _export():
+        with _pool.connection() as con:
+            if room:
+                cur = con.execute(
+                    "SELECT id, room, hand_number, played_at, title, events "
+                    "FROM hands WHERE room = %s ORDER BY id", (room,))
+            else:
+                cur = con.execute(
+                    "SELECT id, room, hand_number, played_at, title, events "
+                    "FROM hands ORDER BY id")
+            return cur.fetchall()
+
+    rows = await asyncio.to_thread(_export)
+    return [{
+        "id": r[0], "room": r[1], "hand_number": r[2],
+        "played_at": r[3].isoformat() if r[3] else None,
+        "title": r[4], "events": r[5],
+    } for r in rows]
+
+
 async def get_hand(room: str, hand_id: int) -> dict | None:
     if not _pool:
         return None

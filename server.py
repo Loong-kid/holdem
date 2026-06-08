@@ -15,10 +15,17 @@ their own hole cards, so nobody can peek at someone else's hand.
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+import json
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import db
@@ -32,7 +39,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v23-playtweaks"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v24-export"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -498,6 +505,35 @@ async def index():
 async def health():
     """Quick check of whether replay persistence is wired to a database."""
     return {**db.status(), "version": APP_VERSION}
+
+
+@app.get("/export")
+async def export(room: str = "main"):
+    """Download every stored hand for a room as one JSON file (for analysis).
+
+    Pulls from the database when configured; otherwise serves the in-memory
+    hand log of the live room. The file is the full event stream per hand, so it
+    has the same fidelity as the replay viewer.
+    """
+    if db.enabled():
+        hands = await db.export_hands(room)
+    else:
+        r = manager.rooms.get(room)
+        hands = []
+        if r:
+            for rec in r.game.hand_log:
+                hands.append({
+                    "id": rec["number"], "room": room,
+                    "hand_number": rec["number"], "played_at": None,
+                    "title": summarize_hand(rec), "events": rec["events"],
+                })
+    payload = {"room": room, "exported_at": _now_iso(),
+               "count": len(hands), "hands": hands}
+    body = json.dumps(payload, ensure_ascii=False, indent=2)
+    fname = f"holdem_{room}_{len(hands)}hands.json"
+    return Response(
+        content=body, media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @app.websocket("/ws")
