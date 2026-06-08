@@ -16,3 +16,10 @@ Thumbs.db
 *.log
 backups/
 *.db
+
+# Exported / downloaded hand data (contains hole cards — keep out of the repo)
+holdem_*.json
+holdem_*.csv
+*_rows.csv
+test_export*.json
+mock_export*.json
