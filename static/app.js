@@ -963,6 +963,10 @@ $("replay-download").onclick = () => {
   a.remove();
 };
 
+// Open the web stats page for this room in a new tab.
+$("stats-btn").onclick = () =>
+  window.open("/stats?room=" + encodeURIComponent(myRoom || "main"), "_blank");
+
 $("replay-prev").onclick = () => { replayIndex--; renderReplayFrame(); };
 $("replay-next").onclick = () => { replayIndex++; renderReplayFrame(); };
 

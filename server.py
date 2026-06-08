@@ -39,7 +39,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v24-export"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v25-statspage"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -499,6 +499,12 @@ def client_ip(ws: WebSocket) -> str:
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/stats")
+async def stats_page():
+    """Web UI that charts hand stats (fetches /export and renders in-browser)."""
+    return FileResponse(STATIC_DIR / "stats.html")
 
 
 @app.get("/health")

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Holdem 핸드 분석</title>
+<style>
+  :root { --felt:#2c7a4b; --gold:#e8c468; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#14241b; color:#eef3f0; }
+  header { background:#0e1c14; border-bottom:1px solid #2c4a38; padding:14px 20px;
+           display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  header h1 { margin:0; font-size:19px; color:var(--gold); }
+  .ctrls { display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap; }
+  input, button, a.btn {
+    font-size:13px; border-radius:7px; border:1px solid #3c5c48;
+    background:#122318; color:#eef3f0; padding:8px 12px; }
+  button, a.btn { cursor:pointer; font-weight:700; text-decoration:none; }
+  button.gold, a.btn.gold { background:var(--gold); color:#1a1a1a; border-color:var(--gold); }
+  button:hover, a.btn:hover { filter:brightness(1.1); }
+  main { padding:20px; max-width:1100px; margin:0 auto; }
+  .cards { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:18px; }
+  .stat-card { background:#1c3326; border:1px solid #2c4a38; border-radius:12px;
+               padding:14px 20px; min-width:120px; }
+  .stat-card .k { color:#9fbfa9; font-size:12px; }
+  .stat-card .v { color:var(--gold); font-size:26px; font-weight:800; }
+  h2 { font-size:15px; color:#d8e8de; margin:24px 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; background:#16271d;
+          border-radius:10px; overflow:hidden; }
+  th, td { padding:9px 11px; text-align:right; border-bottom:1px solid #243a2c; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { background:#1c3326; color:#9fbfa9; cursor:pointer; user-select:none; position:sticky; top:0; }
+  thead th:hover { color:#fff; }
+  thead th.sorted::after { content:" \25BE"; color:var(--gold); }
+  thead th.sorted.asc::after { content:" \25B4"; }
+  tbody tr:hover { background:#1b3325; }
+  .pos { color:#8fb6ff; }
+  .net-pos { color:#7CFC00; font-weight:700; }
+  .net-neg { color:#ff7a7a; font-weight:700; }
+  .bar-wrap { display:inline-block; width:54px; height:8px; background:#0e1c14;
+              border-radius:4px; overflow:hidden; vertical-align:middle; margin-left:6px; }
+  .bar { height:100%; background:linear-gradient(90deg,#3b8a5a,#7CFC00); }
+  .muted { color:#7c9a8a; }
+  .hint { color:#88a596; font-size:12px; margin:6px 0 0; }
+  .rows-wrap { max-height:46vh; overflow:auto; border-radius:10px; }
+  .tag { background:var(--gold); color:#1a1a1a; border-radius:4px; padding:1px 5px;
+         font-size:11px; font-weight:800; }
+  #msg { color:#ffb347; margin:20px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📊 Holdem 핸드 분석</h1>
+  <div class="ctrls">
+    <label class="muted">방 <input id="room" size="10" /></label>
+    <button id="load" class="gold">불러오기</button>
+    <button id="csv-players">플레이어 CSV</button>
+    <button id="csv-rows">전체행 CSV</button>
+    <a id="raw" class="btn" href="#" target="_blank">원본 JSON</a>
+  </div>
+</header>
+<main>
+  <div id="msg">데이터를 불러오는 중...</div>
+  <div id="report" style="display:none">
+    <div class="cards" id="summary"></div>
+    <h2>플레이어 통계 <span class="muted">(헤더 클릭 = 정렬)</span></h2>
+    <table id="players"><thead></thead><tbody></tbody></table>
+    <p class="hint">VPIP=프리플랍 자발적 참여율 · PFR=프리플랍 레이즈율 · WTSD=쇼다운 도달률 · W$SD=쇼다운 승률 · 순익=획득−투입</p>
+    <h2>핸드별 상세 <span class="muted">(player × hand)</span></h2>
+    <div class="rows-wrap"><table id="rows"><thead></thead><tbody></tbody></table></div>
+  </div>
+</main>
+<script>
+const qs = new URLSearchParams(location.search);
+let ROOM = qs.get("room") || "main";
+document.getElementById("room").value = ROOM;
+
+// --- stat derivation (mirrors analyze_hands.py) ---------------------------
+function winnersOf(result) {
+  if (result && result.board_winners != null) {
+    const flat = []; result.board_winners.forEach(bw => bw.forEach(w => flat.push(w))); return flat;
+  }
+  return (result && result.winners) || [];
+}
+function handRows(hand) {
+  const ev = hand.events || [];
+  const start = ev.find(e => e.type === "start");
+  const result = ev.find(e => e.type === "result");
+  if (!start) return [];
+  const names = start.players.map(p => p.name);
+  const pos = {}, hole = {};
+  start.players.forEach(p => { pos[p.name] = p.pos || ""; hole[p.name] = (p.hole || []).join(" "); });
+  const contributed = {}, won = {}, vpip = {}, pfr = {}, sawFlop = {}, folded = {};
+  names.forEach(n => { contributed[n]=0; won[n]=0; });
+  ev.forEach(e => {
+    if (e.type === "post") contributed[e.name] += e.amount || 0;
+    else if (e.type === "action") {
+      const nm = e.name, label = e.label || "";
+      contributed[nm] = (contributed[nm]||0) + (e.paid || 0);
+      if (e.street === "preflop") {
+        if (label.startsWith("raise") || label.startsWith("all-in")) { vpip[nm]=true; pfr[nm]=true; }
+        else if (label.startsWith("call")) vpip[nm]=true;
+      }
+      if (label.startsWith("fold")) folded[nm]=true;
+    } else if (e.type === "street" && e.street === "flop") {
+      names.forEach(n => { if (!folded[n]) sawFlop[n]=true; });
+    }
+  });
+  const reachedSD = new Set();
+  const showdown = !!(result && result.showdown);
+  if (showdown) (result.reveals||[]).forEach(r => reachedSD.add(r.name));
+  if (result) winnersOf(result).forEach(w => { won[w.name] = (won[w.name]||0) + (w.amount||0); });
+  return names.map(nm => ({
+    room: hand.room||"", hand: hand.hand_number||hand.id, player: nm,
+    pos: pos[nm]||"", hole: hole[nm]||"",
+    contributed: contributed[nm]||0, won: won[nm]||0, net: (won[nm]||0)-(contributed[nm]||0),
+    vpip: vpip[nm]?1:0, pfr: pfr[nm]?1:0, saw_flop: sawFlop[nm]?1:0,
+    showdown: reachedSD.has(nm)?1:0, won_at_sd: (reachedSD.has(nm)&&(won[nm]||0)>0)?1:0,
+  }));
+}
+
+let ROWS = [], PLAYERS = [];
+function aggregate(rows) {
+  const m = {};
+  rows.forEach(r => {
+    const a = m[r.player] || (m[r.player] = {player:r.player, hands:0, net:0, vpip:0, pfr:0, saw_flop:0, showdown:0, won_at_sd:0});
+    a.hands++; a.net+=r.net; a.vpip+=r.vpip; a.pfr+=r.pfr; a.saw_flop+=r.saw_flop;
+    a.showdown+=r.showdown; a.won_at_sd+=r.won_at_sd;
+  });
+  return Object.values(m).map(a => ({
+    ...a,
+    avg: a.hands ? a.net/a.hands : 0,
+    vpip_pct: a.hands ? a.vpip/a.hands : 0,
+    pfr_pct: a.hands ? a.pfr/a.hands : 0,
+    wtsd_pct: a.hands ? a.showdown/a.hands : 0,
+    wsd_pct: a.showdown ? a.won_at_sd/a.showdown : 0,
+  }));
+}
+
+const pct = x => (x*100).toFixed(0)+"%";
+const netCls = n => n>0 ? "net-pos" : n<0 ? "net-neg" : "";
+const netTxt = n => (n>0?"+":"")+n;
+
+// --- render ----------------------------------------------------------------
+const PCOLS = [
+  {k:"player", t:"플레이어", num:false},
+  {k:"hands", t:"핸드", num:true},
+  {k:"net", t:"순익", num:true, fmt:r=>`<span class="${netCls(r.net)}">${netTxt(r.net)}</span>`},
+  {k:"avg", t:"핸드당", num:true, fmt:r=>`<span class="${netCls(r.avg)}">${r.avg.toFixed(1)}</span>`},
+  {k:"vpip_pct", t:"VPIP", num:true, fmt:r=>bar(r.vpip_pct)},
+  {k:"pfr_pct", t:"PFR", num:true, fmt:r=>bar(r.pfr_pct)},
+  {k:"wtsd_pct", t:"WTSD", num:true, fmt:r=>bar(r.wtsd_pct)},
+  {k:"wsd_pct", t:"W$SD", num:true, fmt:r=>bar(r.wsd_pct)},
+];
+function bar(x){ return `${pct(x)}<span class="bar-wrap"><span class="bar" style="width:${Math.round(x*100)}%"></span></span>`; }
+
+let psort = {k:"net", asc:false};
+function renderPlayers() {
+  const arr = [...PLAYERS].sort((a,b)=> {
+    const va=a[psort.k], vb=b[psort.k];
+    const c = typeof va==="string" ? va.localeCompare(vb) : va-vb;
+    return psort.asc ? c : -c;
+  });
+  const thead = document.querySelector("#players thead");
+  thead.innerHTML = "<tr>" + PCOLS.map(c =>
+    `<th data-k="${c.k}" class="${psort.k===c.k?'sorted '+(psort.asc?'asc':''):''}">${c.t}</th>`).join("") + "</tr>";
+  thead.querySelectorAll("th").forEach(th => th.onclick = () => {
+    const k = th.dataset.k;
+    if (psort.k===k) psort.asc=!psort.asc; else { psort={k, asc:false}; }
+    renderPlayers();
+  });
+  document.querySelector("#players tbody").innerHTML = arr.map(r =>
+    "<tr>" + PCOLS.map(c => `<td>${c.fmt?c.fmt(r):r[c.k]}</td>`).join("") + "</tr>").join("");
+}
+
+const RCOLS = [["hand","핸드"],["player","플레이어"],["pos","포지션"],["hole","핸드패"],
+  ["contributed","투입"],["won","획득"],["net","순익"],["vpip","VPIP"],["pfr","PFR"],
+  ["saw_flop","플롭"],["showdown","쇼다운"]];
+function renderRows() {
+  document.querySelector("#rows thead").innerHTML =
+    "<tr>" + RCOLS.map(([,t])=>`<th>${t}</th>`).join("") + "</tr>";
+  document.querySelector("#rows tbody").innerHTML = ROWS.map(r =>
+    "<tr>" + RCOLS.map(([k]) => {
+      if (k==="net") return `<td class="${netCls(r.net)}">${netTxt(r.net)}</td>`;
+      if (k==="pos") return `<td class="pos">${r.pos}</td>`;
+      if (["vpip","pfr","saw_flop","showdown"].includes(k)) return `<td>${r[k]?"●":"·"}</td>`;
+      return `<td>${r[k]}</td>`;
+    }).join("") + "</tr>").join("");
+}
+
+function renderSummary(handCount) {
+  const totalNet = ROWS.reduce((s,r)=>s+r.net,0);
+  document.getElementById("summary").innerHTML = `
+    <div class="stat-card"><div class="k">방</div><div class="v">${ROOM}</div></div>
+    <div class="stat-card"><div class="k">핸드 수</div><div class="v">${handCount}</div></div>
+    <div class="stat-card"><div class="k">플레이어</div><div class="v">${PLAYERS.length}</div></div>
+    <div class="stat-card"><div class="k">순익 합(검증)</div><div class="v">${totalNet}</div></div>`;
+}
+
+// --- CSV download ----------------------------------------------------------
+function toCSV(rows, cols) {
+  const head = cols.join(",");
+  const body = rows.map(r => cols.map(c => {
+    let v = r[c]; if (v==null) v="";
+    v = String(v); if (/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"'; return v;
+  }).join(",")).join("\n");
+  return "﻿" + head + "\n" + body;   // BOM so Excel reads Korean
+}
+function download(name, text) {
+  const blob = new Blob([text], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = name; a.click(); URL.revokeObjectURL(a.href);
+}
+document.getElementById("csv-rows").onclick = () =>
+  download(`holdem_${ROOM}_rows.csv`, toCSV(ROWS,
+    ["room","hand","player","pos","hole","contributed","won","net","vpip","pfr","saw_flop","showdown","won_at_sd"]));
+document.getElementById("csv-players").onclick = () =>
+  download(`holdem_${ROOM}_players.csv`, toCSV(
+    PLAYERS.map(p=>({player:p.player, hands:p.hands, net:p.net, avg:p.avg.toFixed(2),
+      vpip:pct(p.vpip_pct), pfr:pct(p.pfr_pct), wtsd:pct(p.wtsd_pct), wsd:pct(p.wsd_pct)})),
+    ["player","hands","net","avg","vpip","pfr","wtsd","wsd"]));
+
+// --- load ------------------------------------------------------------------
+async function load() {
+  ROOM = document.getElementById("room").value.trim() || "main";
+  document.getElementById("raw").href = "/export?room=" + encodeURIComponent(ROOM);
+  const msg = document.getElementById("msg"), rep = document.getElementById("report");
+  msg.style.display="block"; rep.style.display="none"; msg.textContent="데이터를 불러오는 중...";
+  try {
+    const res = await fetch("/export?room=" + encodeURIComponent(ROOM));
+    const data = await res.json();
+    const hands = data.hands || [];
+    if (!hands.length) { msg.textContent = `방 '${ROOM}'에 저장된 핸드가 없습니다.`; return; }
+    ROWS = hands.flatMap(handRows);
+    PLAYERS = aggregate(ROWS);
+    renderSummary(hands.length); renderPlayers(); renderRows();
+    msg.style.display="none"; rep.style.display="block";
+  } catch (e) {
+    msg.textContent = "불러오기 실패: " + e;
+  }
+}
+document.getElementById("load").onclick = load;
+document.getElementById("room").addEventListener("keydown", e => { if (e.key==="Enter") load(); });
+load();
+</script>
+</body>
+</html>
