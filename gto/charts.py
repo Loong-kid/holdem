@@ -10,8 +10,31 @@ import json, os
 POS_MAP = {
     "UTG": "UTG", "UTG+1": "UTG1", "UTG+2": "UTG2",
     "LJ": "MP",  # 차트는 MP, 우리는 LJ
-    "HJ": "HJ", "CO": "CO", "BTN": "BTN", "SB": "SB",
+    "HJ": "HJ", "CO": "CO", "BTN": "BTN", "SB": "SB", "BB": "BB",
 }
+
+def categorize_3bet(action_text):
+    """3bet 차트의 셀 액션 텍스트 -> 허용 히어로액션 집합 {'3bet','call','fold'}.
+    혼합 셀(예: '3B / Fold', 'Flat / 3B Bluff')은 여러 액션 허용."""
+    if not action_text or action_text == "FOLD":
+        return {"fold"}
+    t = action_text.lower()
+    s = set()
+    if any(k in t for k in ("3b", "jam", "all in", "all-in", "shove", "broke")):
+        s.add("3bet")
+    if "flat" in t:
+        s.add("call")
+    if "fold" in t:
+        s.add("fold")
+    return s or {"3bet"}
+
+def cat_label(actions):
+    """허용집합 -> 매트릭스 표시용 대표 범주(3bet 우선, 그다음 call)."""
+    if "3bet" in actions:
+        return "3bet"
+    if "call" in actions:
+        return "call"
+    return "fold"
 # 채점 대상 포지션. 비블라인드(UTG~BTN)는 OPENRAISING 차트로, SB는 헤즈업일 때만
 # HU 차트로 채점(3인+ 폴드-투-SB는 아직 보류). BB는 RFI가 아니라 추출 단계에서 제외됨.
 SCORABLE_POS = {"UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB"}
@@ -38,6 +61,23 @@ def hu_tier(eff_bb):
     if eff_bb >= 25:
         return "25-35BB"
     return None
+
+def tier_3bet(eff_bb):
+    """FLATTING & 3BETTING 스택대 (20BB / 30-40BB / 40-50BB / 50BB+)."""
+    if eff_bb is None:
+        return None
+    if eff_bb >= 50:
+        return "50BB+"
+    if eff_bb >= 40:
+        return "40-50BB"
+    if eff_bb >= 30:
+        return "30-40BB"
+    return "20BB"
+
+def _mu_token(tok):
+    """매치업 포지션 토큰 정규화 (TBN 오타 -> BTN)."""
+    tok = tok.strip().upper()
+    return "BTN" if tok == "TBN" else tok
 
 def _name_pos_token(name):
     """'OR 40-100BB BU' -> 'BTN', 'OR 20-40BB UTG1' -> 'UTG1' ..."""
@@ -75,6 +115,17 @@ class ChartProvider:
                     and c["folders"][1] == HU_FROM_SB:
                 self.hu_sb[c["name"]] = c["hands"]   # name = '25-35BB' 등
 
+        # 3bet/플랫 차트: (tier, hero_tok, opener_tok) -> hands. name='BB VS SB' 등.
+        self.threebet = {}
+        for c in db["charts"]:
+            if c["category"] != "FLATTING _ 3BETTING" or len(c["folders"]) < 2:
+                continue
+            tier = c["folders"][1]
+            if " VS " not in c["name"].upper():
+                continue
+            hero, opener = c["name"].upper().split(" VS ", 1)
+            self.threebet[(tier, _mu_token(hero), _mu_token(opener))] = c["hands"]
+
     def lookup(self, pos, eff_bb, n_players=None):
         """포지션·유효스택·인원 -> (chart_hands, tier_label, ptok) 또는 None.
         SB는 헤즈업(2인)일 때만 HU 차트로 채점; 3인+ SB는 None(보류)."""
@@ -95,8 +146,22 @@ class ChartProvider:
             return None
         return hands, tier, ptok
 
+    def lookup_3bet(self, hero_pos, opener_pos, eff_bb):
+        """내 포지션·오프너 포지션·유효스택 -> (chart_hands, tier, 'HERO vs OPENER') 또는 None."""
+        tier = tier_3bet(eff_bb)
+        hero = POS_MAP.get(hero_pos)
+        opener = POS_MAP.get(opener_pos)
+        if tier is None or hero is None or opener is None:
+            return None
+        hands = self.threebet.get((tier, hero, opener))
+        if hands is None:
+            return None
+        return hands, tier, f"{hero} vs {opener}"
+
     def available(self):
-        return sorted(self.index.keys()) + ["HU SB:" + t for t in sorted(self.hu_sb)]
+        return (sorted(self.index.keys())
+                + ["HU SB:" + t for t in sorted(self.hu_sb)]
+                + ["3B " + "/".join(k) for k in sorted(self.threebet)])
 
 
 if __name__ == "__main__":

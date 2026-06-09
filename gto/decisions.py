@@ -83,6 +83,67 @@ def extract_rfi(export):
     return out
 
 
+def extract_vs_raise(export):
+    """단일 오프너(첫 레이저)에 직면한 첫 대응 결정점 (3bet/call/fold).
+    콜드콜러가 끼거나(멀티웨이) 이미 3bet이 나온 뒤(스퀴즈/vs-3bet)는 제외 = 순수
+    'open vs 1 raiser' 스팟만. eff_bb는 히어로·오프너 중 작은 유효스택."""
+    out = []
+    for hand, events in _iter_hands(export):
+        if not events or events[0].get("type") != "start":
+            continue
+        start = events[0]
+        variant = start.get("variant", "holdem")
+        bb = start.get("bb") or 0
+        players = {p["name"]: p for p in start.get("players", [])}
+        n_players = len(start.get("players", []))
+
+        raises_seen = 0
+        opener = None
+        opener_pos = None
+        callers = 0          # 오프너 이후 콜한 사람(멀티웨이 감지)
+        acted = set()
+        for e in events:
+            if e.get("type") != "action":
+                continue
+            if e.get("street") != "preflop":
+                break
+            name = e.get("name")
+            label = (e.get("label") or "")
+            first = name not in acted
+            is_raise = label.startswith("raise") or label.startswith("all-in")
+            is_call = label == "call"
+
+            # 순수 vs-open: 정확히 1회 레이즈(오프너), 히어로 첫 액션, 콜드콜러 없음
+            if raises_seen == 1 and first and name != opener and callers == 0:
+                hp = players.get(name, {})
+                op = players.get(opener, {})
+                hs, os_ = hp.get("stack") or 0, op.get("stack") or 0
+                eff = min(hs, os_) if (hs and os_) else (hs or os_)
+                action = "3bet" if is_raise else ("call" if is_call else "fold")
+                out.append({
+                    "hand_number": hand.get("number") or hand.get("hand_number"),
+                    "variant": variant,
+                    "player": name,
+                    "pos": hp.get("pos", ""),
+                    "opener_pos": opener_pos,
+                    "hole": hp.get("hole", []),
+                    "hand": to_hand_notation(hp.get("hole", [])),
+                    "eff_bb": round(eff / bb, 1) if bb else None,
+                    "n_players": n_players,
+                    "action": action,
+                })
+
+            if is_raise:
+                raises_seen += 1
+                if opener is None:
+                    opener = name
+                    opener_pos = players.get(name, {}).get("pos", "")
+            elif is_call and raises_seen == 1:
+                callers += 1
+            acted.add(name)
+    return out
+
+
 if __name__ == "__main__":
     import json, collections
     export = json.load(open("fake_export.json", encoding="utf-8"))

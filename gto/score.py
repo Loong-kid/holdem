@@ -9,8 +9,8 @@ verdict:
   limp       림프(RFI 비표준 액션)    ⚠️
   skip:...   채점 불가(변종/포지션/스택/차트없음)
 """
-from .decisions import extract_rfi
-from .charts import ChartProvider, SCORABLE_POS
+from .decisions import extract_rfi, extract_vs_raise
+from .charts import ChartProvider, SCORABLE_POS, categorize_3bet, cat_label
 
 def score_decision(d, cp):
     if d["variant"] != "holdem":
@@ -37,6 +37,31 @@ def score_decision(d, cp):
     if my_open and not chart_open:
         return "too_loose"
     return "too_tight"
+
+def score_vs_raise(d, cp):
+    """단일 오프너 직면(3bet/call/fold) 채점.
+    ok_3bet/ok_call/ok_fold | vs_too_tight(들어가야 하는데 폴드) |
+    vs_too_loose(폴드해야 하는데 들어감) | vs_wrong(액션 종류 틀림: call↔3bet)."""
+    if d["variant"] != "holdem":
+        return "skip:variant"
+    if not d["hand"]:
+        return "skip:nohand"
+    look = cp.lookup_3bet(d["pos"], d["opener_pos"], d["eff_bb"])
+    if look is None:
+        return "skip:nochart"   # 차트에 없는 매치업/스택
+    chart_hands, tier, label = look
+    cell = chart_hands.get(d["hand"])
+    raw = cell["action"] if cell else "FOLD"
+    allowed = categorize_3bet(raw)
+    act = d["action"]                       # 3bet / call / fold
+    if act in allowed:
+        return "ok_" + act
+    has_action = ("3bet" in allowed) or ("call" in allowed)
+    if act == "fold" and has_action:
+        return "vs_too_tight"
+    if act in ("3bet", "call") and allowed == {"fold"}:
+        return "vs_too_loose"
+    return "vs_wrong"
 
 def score_export(export, db_path="chart_db.json", hero=None):
     cp = ChartProvider(db_path)
@@ -113,17 +138,14 @@ def build_report(export, db_path="chart_db.json", hero=None):
     rows, charts = [], {}
     players = []
     seen = set()
+    def note_player(name):
+        if name not in seen:
+            seen.add(name); players.append(name)
+
+    # --- RFI (오픈) ---
     for d in rfi:
         v = score_decision(d, cp)
-        rows.append({
-            "hand_number": d["hand_number"], "player": d["player"],
-            "pos": d["pos"], "hand": d["hand"], "hole": d["hole"],
-            "eff_bb": d["eff_bb"], "n_players": d["n_players"],
-            "action": d["action"], "verdict": v,
-        })
-        if d["player"] not in seen:
-            seen.add(d["player"]); players.append(d["player"])
-        # 등장한 채점가능 스팟의 레인지 매트릭스 수집(한 번만)
+        key = None
         if d["pos"] in SCORABLE_POS:
             look = cp.lookup(d["pos"], d["eff_bb"], d["n_players"])
             if look:
@@ -131,10 +153,41 @@ def build_report(export, db_path="chart_db.json", hero=None):
                 key = f"{d['pos']}|{tier}"
                 if key not in charts:
                     charts[key] = {
-                        "pos": d["pos"], "tier": tier,
-                        "actions": {h: c["action"] for h, c in chart_hands.items()
+                        "kind": "rfi", "pos": d["pos"], "tier": tier,
+                        "actions": {h: "open" for h, c in chart_hands.items()
                                     if c["action"] != "FOLD"},
                     }
+        rows.append({
+            "kind": "rfi", "hand_number": d["hand_number"], "player": d["player"],
+            "pos": d["pos"], "opener_pos": None, "hand": d["hand"], "hole": d["hole"],
+            "eff_bb": d["eff_bb"], "n_players": d["n_players"],
+            "action": d["action"], "verdict": v, "chart_key": key,
+        })
+        note_player(d["player"])
+
+    # --- vs-raise (3bet/call/fold) ---
+    for d in extract_vs_raise(export):
+        v = score_vs_raise(d, cp)
+        key = None
+        look = cp.lookup_3bet(d["pos"], d["opener_pos"], d["eff_bb"])
+        if look:
+            chart_hands, tier, label = look
+            key = f"{label}|{tier}"
+            if key not in charts:
+                charts[key] = {
+                    "kind": "vs_raise", "pos": label, "tier": tier,
+                    "actions": {h: cat_label(categorize_3bet(c["action"]))
+                                for h, c in chart_hands.items()
+                                if categorize_3bet(c["action"]) != {"fold"}},
+                }
+        rows.append({
+            "kind": "vs_raise", "hand_number": d["hand_number"], "player": d["player"],
+            "pos": d["pos"], "opener_pos": d["opener_pos"], "hand": d["hand"],
+            "hole": d["hole"], "eff_bb": d["eff_bb"], "n_players": d["n_players"],
+            "action": d["action"], "verdict": v, "chart_key": key,
+        })
+        note_player(d["player"])
+
     return {"players": players, "rows": rows, "charts": charts}
 
 
