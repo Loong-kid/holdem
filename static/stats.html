@@ -346,7 +346,7 @@ function renderGTO(player) {
     <div class="stat-card"><div class="k">🟡 림프</div><div class="v">${limps}</div></div>`;
 
   // 포지션별
-  const order = ["UTG","UTG+1","UTG+2","LJ","HJ","CO","BTN"];
+  const order = ["UTG","UTG+1","UTG+2","LJ","HJ","CO","BTN","SB"];
   const byPos = {}; scored.forEach(r => (byPos[r.pos] = byPos[r.pos] || []).push(r));
   const ph = ["포지션","결정수","내오픈","🔴루즈","🔵타이트","일치율"];
   document.querySelector("#gto-pos thead").innerHTML = "<tr>" + ph.map(h=>`<th>${h}</th>`).join("") + "</tr>";

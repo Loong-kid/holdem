@@ -16,14 +16,14 @@ def score_decision(d, cp):
     if d["variant"] != "holdem":
         return "skip:variant"
     if d["pos"] not in SCORABLE_POS:
-        return "skip:pos"   # SB/BB는 1단계 보류
+        return "skip:pos"   # BB는 RFI 아님(추출서 제외), 그 외 비대상
     if not d["hand"]:
         return "skip:nohand"
     if d["action"] == "limp":
         return "limp"
-    look = cp.lookup(d["pos"], d["eff_bb"])
+    look = cp.lookup(d["pos"], d["eff_bb"], d["n_players"])
     if look is None:
-        return "skip:nochart"
+        return "skip:nochart"   # 예: 3인+ SB(보류), 숏스택 헤즈업(<25bb)
     chart_hands, tier, ptok = look
     cell = chart_hands.get(d["hand"])
     if cell is None:
@@ -125,7 +125,7 @@ def build_report(export, db_path="chart_db.json", hero=None):
             seen.add(d["player"]); players.append(d["player"])
         # 등장한 채점가능 스팟의 레인지 매트릭스 수집(한 번만)
         if d["pos"] in SCORABLE_POS:
-            look = cp.lookup(d["pos"], d["eff_bb"])
+            look = cp.lookup(d["pos"], d["eff_bb"], d["n_players"])
             if look:
                 chart_hands, tier, ptok = look
                 key = f"{d['pos']}|{tier}"

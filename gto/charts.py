@@ -12,8 +12,11 @@ POS_MAP = {
     "LJ": "MP",  # 차트는 MP, 우리는 LJ
     "HJ": "HJ", "CO": "CO", "BTN": "BTN", "SB": "SB",
 }
-# 비블라인드 RFI(1단계 채점 대상). SB/BB는 1단계 보류.
-SCORABLE_POS = {"UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN"}
+# 채점 대상 포지션. 비블라인드(UTG~BTN)는 OPENRAISING 차트로, SB는 헤즈업일 때만
+# HU 차트로 채점(3인+ 폴드-투-SB는 아직 보류). BB는 RFI가 아니라 추출 단계에서 제외됨.
+SCORABLE_POS = {"UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB"}
+
+HU_FROM_SB = "25BB+ FROM SB"   # 헤즈업 SB(버튼) 오픈 RFI 차트 폴더
 
 def stack_tier(eff_bb):
     if eff_bb is None:
@@ -23,6 +26,18 @@ def stack_tier(eff_bb):
     if eff_bb >= 20:
         return "20-40BB"
     return "10-20BB"
+
+def hu_tier(eff_bb):
+    """헤즈업 SB 오픈 차트 스택대 (HU/25BB+ FROM SB/*). <25bb는 보류(숏스택 전략 별도)."""
+    if eff_bb is None:
+        return None
+    if eff_bb >= 50:
+        return "50BB+"
+    if eff_bb >= 35:
+        return "35-50BB"
+    if eff_bb >= 25:
+        return "25-35BB"
+    return None
 
 def _name_pos_token(name):
     """'OR 40-100BB BU' -> 'BTN', 'OR 20-40BB UTG1' -> 'UTG1' ..."""
@@ -53,8 +68,24 @@ class ChartProvider:
             ptok = _name_pos_token(name)
             self.index[(tier, ptok)] = c["hands"]
 
-    def lookup(self, pos, eff_bb):
-        """우리 포지션 이름 + 유효스택 -> (chart_hands, tier, ptok) 또는 None."""
+        # 헤즈업 SB 오픈 차트: HU/25BB+ FROM SB/{25-35BB|35-50BB|50BB+}
+        self.hu_sb = {}
+        for c in db["charts"]:
+            if c["category"] == "HU" and len(c["folders"]) >= 2 \
+                    and c["folders"][1] == HU_FROM_SB:
+                self.hu_sb[c["name"]] = c["hands"]   # name = '25-35BB' 등
+
+    def lookup(self, pos, eff_bb, n_players=None):
+        """포지션·유효스택·인원 -> (chart_hands, tier_label, ptok) 또는 None.
+        SB는 헤즈업(2인)일 때만 HU 차트로 채점; 3인+ SB는 None(보류)."""
+        if pos == "SB":
+            if n_players != 2:
+                return None
+            t = hu_tier(eff_bb)
+            if t is None:
+                return None
+            hands = self.hu_sb.get(t)
+            return (hands, "HU " + t, "SB") if hands else None
         tier = stack_tier(eff_bb)
         ptok = POS_MAP.get(pos)
         if tier is None or ptok is None:
@@ -65,7 +96,7 @@ class ChartProvider:
         return hands, tier, ptok
 
     def available(self):
-        return sorted(self.index.keys())
+        return sorted(self.index.keys()) + ["HU SB:" + t for t in sorted(self.hu_sb)]
 
 
 if __name__ == "__main__":

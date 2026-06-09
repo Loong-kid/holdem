@@ -67,7 +67,7 @@ def extract_rfi(export):
                 stack = p.get("stack") or 0
                 action = "open" if is_open else ("limp" if is_limp else "fold")
                 out.append({
-                    "hand_number": hand.get("number"),
+                    "hand_number": hand.get("number") or hand.get("hand_number"),
                     "variant": variant,
                     "player": name,
                     "pos": p.get("pos", ""),
