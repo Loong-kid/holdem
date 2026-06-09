@@ -68,7 +68,13 @@
   .matrix td.mine-tight { outline:2px solid #5b8dff; outline-offset:-2px; }
   .matrix td.mine-ok { outline:2px solid #7CFC00; outline-offset:-2px; }
   .matrix td.mine-wrong { outline:2px solid #ffb347; outline-offset:-2px; }
+  .matrix td.sel-cell { outline:3px solid #fff; outline-offset:-3px; font-weight:800; }
   .verdict-wrong { color:#ffb347; font-weight:700; }
+  tr.gto-clickable { cursor:pointer; }
+  tr.gto-clickable:hover { background:#1f3a2a; }
+  tr.sel-row { background:#2a4636 !important; }
+  #gto-clearsel { font-size:12px; border-radius:6px; border:1px solid #3c5c48;
+                  background:#122318; color:#eef3f0; padding:3px 9px; cursor:pointer; }
   select { font-size:13px; border-radius:7px; border:1px solid #3c5c48;
            background:#122318; color:#eef3f0; padding:7px 10px; }
 </style>
@@ -300,6 +306,7 @@ async function load() {
 
 // --- GTO feedback tab ------------------------------------------------------
 let GTO_LOADED = false, GTO_DATA = null;
+let SEL = null, ROWS_VIEW = [];   // SEL = 선택한 핸드 {chart_key, hand}
 const R13 = "AKQJT98765432";
 const stackTier = bb => bb==null ? null : bb>=40 ? "40-100BB" : bb>=20 ? "20-40BB" : "10-20BB";
 function cellHand(i,j){ return i===j ? R13[i]+R13[i] : i<j ? R13[i]+R13[j]+"s" : R13[j]+R13[i]+"o"; }
@@ -378,15 +385,32 @@ function renderGTO(player) {
       <td>${(okp/rs.length*100).toFixed(0)}%</td></tr>`;
   }).join("");
 
-  // 레인지 매트릭스 (서버가 준 chart_key로 내 플레이 오버레이)
+  // 매트릭스·핸드리스트는 핸드 선택(SEL)에 따라 갱신되므로 별도 함수로
+  ROWS_VIEW = rows;
+  SEL = null;
+  renderMatrices();
+  renderHandList();
+}
+
+// 레인지 매트릭스 — SEL 있으면 그 핸드가 속한 차트만 + 그 셀만 오버레이
+function renderMatrices() {
+  const rows = ROWS_VIEW;
   const mine = {};
   rows.forEach(r => {
     if (!r.chart_key || !r.hand) return;
     (mine[r.chart_key] = mine[r.chart_key] || {})[r.hand] = r.verdict;
   });
   const wrap = document.getElementById("gto-matrix"); wrap.innerHTML = "";
+  if (SEL) {
+    wrap.insertAdjacentHTML("beforeend",
+      `<div style="width:100%;margin-bottom:4px" class="muted">선택: <b style="color:#eef3f0">${SEL.hand}</b> · ${SEL.chart_key.replace("|"," / ")}
+       <button id="gto-clearsel">전체 보기</button></div>`);
+  }
   Object.keys(GTO_DATA.charts).sort().forEach(key => {
-    const ch = GTO_DATA.charts[key], acts = ch.actions, myk = mine[key] || {};
+    if (SEL && key !== SEL.chart_key) return;
+    const ch = GTO_DATA.charts[key], acts = ch.actions;
+    const all = mine[key] || {};
+    const myk = SEL ? (SEL.hand in all ? {[SEL.hand]: all[SEL.hand]} : {}) : all;
     const tag = ch.kind === "vs_raise" ? "vs레이즈" : "오픈";
     let html = `<div class="matrix-box"><h3>${ch.pos} <span class="muted">(${ch.tier} · ${tag})</span></h3><table class="matrix">`;
     for (let i=0;i<13;i++) {
@@ -399,6 +423,7 @@ function renderGTO(player) {
         else if (isTight(v)) cls += " mine-tight";
         else if (v === "vs_wrong") cls += " mine-wrong";
         else if (isOk(v) && v !== "ok_fold") cls += " mine-ok";
+        if (SEL && h === SEL.hand) cls += " sel-cell";
         const tip = h + (a ? " · 차트:"+a : "") + (v ? " · 내:"+(VLABEL[v]||v) : "");
         html += `<td class="${cls}" title="${tip}">${h}</td>`;
       }
@@ -406,23 +431,39 @@ function renderGTO(player) {
     }
     html += "</table></div>"; wrap.insertAdjacentHTML("beforeend", html);
   });
+  const cs = document.getElementById("gto-clearsel");
+  if (cs) cs.onclick = () => { SEL = null; renderMatrices(); renderHandList(); };
+}
 
-  // 핸드별 판정 (리크 먼저)
+// 핸드별 판정 (리크 먼저). 행 클릭 = 그 핸드만 레인지에 표시
+function renderHandList() {
   const KIND = {rfi:"오픈", vs_raise:"vs레이즈"};
   const hc = [["hand_number","#"],["player","플레이어"],["kind","종류"],["pos","포지션"],
     ["opener_pos","vs"],["hand","핸드"],["eff_bb","유효bb"],["action","액션"],["verdict","판정"]];
   document.querySelector("#gto-rows thead").innerHTML = "<tr>" + hc.map(([,t])=>`<th>${t}</th>`).join("") + "</tr>";
-  const sorted = [...rows].sort((a,b) =>
+  const sorted = [...ROWS_VIEW].sort((a,b) =>
     (VORDER[a.verdict.split(":")[0]] ?? 5) - (VORDER[b.verdict.split(":")[0]] ?? 5)
     || (a.hand_number||0) - (b.hand_number||0));
-  document.querySelector("#gto-rows tbody").innerHTML = sorted.map(r =>
-    "<tr>" + hc.map(([k]) => {
-      if (k==="verdict") return `<td>${VLABEL[r.verdict] || "➖"}</td>`;
-      if (k==="kind") return `<td>${KIND[r.kind] || r.kind}</td>`;
-      if (k==="pos") return `<td class="pos">${r.pos}</td>`;
-      if (k==="opener_pos") return `<td class="pos">${r.opener_pos || "-"}</td>`;
-      return `<td>${r[k] ?? ""}</td>`;
-    }).join("") + "</tr>").join("");
+  const tb = document.querySelector("#gto-rows tbody");
+  tb.innerHTML = sorted.map((r, idx) => {
+    const clickable = !!r.chart_key;
+    const seld = SEL && r.chart_key === SEL.chart_key && r.hand === SEL.hand;
+    return `<tr data-idx="${idx}" class="${clickable?'gto-clickable':''}${seld?' sel-row':''}">` +
+      hc.map(([k]) => {
+        if (k==="verdict") return `<td>${VLABEL[r.verdict] || "➖"}</td>`;
+        if (k==="kind") return `<td>${KIND[r.kind] || r.kind}</td>`;
+        if (k==="pos") return `<td class="pos">${r.pos}</td>`;
+        if (k==="opener_pos") return `<td class="pos">${r.opener_pos || "-"}</td>`;
+        return `<td>${r[k] ?? ""}</td>`;
+      }).join("") + "</tr>";
+  }).join("");
+  tb.querySelectorAll("tr.gto-clickable").forEach(tr => tr.onclick = () => {
+    const r = sorted[+tr.dataset.idx];
+    if (SEL && SEL.chart_key === r.chart_key && SEL.hand === r.hand) SEL = null;  // 재클릭=해제
+    else SEL = {chart_key: r.chart_key, hand: r.hand};
+    renderMatrices(); renderHandList();
+    if (SEL) document.getElementById("gto-matrix").scrollIntoView({behavior:"smooth", block:"start"});
+  });
 }
 
 document.getElementById("load").onclick = load;
