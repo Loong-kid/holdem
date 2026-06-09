@@ -512,8 +512,12 @@ async def index():
 
 @app.get("/stats")
 async def stats_page():
-    """Web UI that charts hand stats (fetches /export and renders in-browser)."""
-    return FileResponse(STATIC_DIR / "stats.html")
+    """Web UI that charts hand stats (fetches /export and renders in-browser).
+
+    no-cache so updates to stats.html show up without a hard refresh (the page is
+    a single self-contained file, so always serving the latest is cheap)."""
+    return FileResponse(STATIC_DIR / "stats.html",
+                        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.get("/health")
