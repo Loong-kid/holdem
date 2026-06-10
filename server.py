@@ -57,7 +57,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
-APP_VERSION = "v32-vs3bet-4bet"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v33-hu-sb-deep"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the

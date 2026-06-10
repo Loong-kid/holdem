@@ -147,6 +147,14 @@ class ChartProvider:
                     and c["folders"][1] == HU_FROM_SB:
                 self.hu_sb[c["name"]] = c["hands"]   # name = '25-35BB' 등
 
+        # 헤즈업 SB 40bb+ 오픈 전략(딥). OPENRAISING과 동일 구조(색칠=오픈, 색=vs3벳 플랜:
+        # Call 3B / 4B Value / Fold Vs 3B). 범례가 명확해 HU 50BB+(미매핑) 대신 사용.
+        self.sb40 = None
+        for c in db["charts"]:
+            if c["path"] == "OPENRAISING/SB 40BB+ STRATEGIES/RAISE - GOOD OPPONENT.pdf":
+                self.sb40 = c["hands"]
+                break
+
         # 3bet/플랫 차트: (tier, hero_tok, opener_tok) -> hands. name='BB VS SB' 등.
         self.threebet = {}
         for c in db["charts"]:
@@ -164,6 +172,8 @@ class ChartProvider:
         if pos == "SB":
             if n_players != 2:
                 return None
+            if eff_bb is not None and eff_bb >= 40 and self.sb40:
+                return (self.sb40, "40bb+", "SB")   # 딥 헤즈업 SB(우리 캐시 100bb 등)
             t = hu_tier(eff_bb)
             if t is None:
                 return None
@@ -193,6 +203,10 @@ class ChartProvider:
     def lookup_vs3bet(self, opener_pos, eff_bb):
         """내 오픈 후 상대 3벳에 대한 대응 차트. 내가 오픈했으니 OPENRAISING {내pos} 재활용.
         반환 (hands, tier, ptok) — 각 핸드 action을 categorize_vs3bet로 해석."""
+        if opener_pos == "SB":   # 헤즈업 SB 딥 오픈의 vs3벳 = SB 40bb+ 전략 차트
+            if eff_bb is not None and eff_bb >= 40 and self.sb40:
+                return (self.sb40, "40bb+", "SB")
+            return None
         tier = stack_tier(eff_bb)
         ptok = POS_MAP.get(opener_pos)
         if tier is None or ptok is None:
