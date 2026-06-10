@@ -186,6 +186,7 @@ setInterval(() => {
 let myName = null, myRoom = null;   // remembered so we can rejoin the same seat
 let reconnectTries = 0;
 let lastSpectatorNames = [];        // spectator display names (for the click popup)
+let wasMyTurn = false;              // true while it's been my turn -> keep raise input across re-renders
 let awaitingRejoin = false;         // this socket is a reconnect attempt awaiting "joined"
 let joinedOnce = false;             // we've successfully entered a room at least once
 
@@ -571,7 +572,12 @@ document.querySelectorAll(".bet-preset").forEach((b) => {
     if (!priv || !priv.legal || !priv.legal.can_raise) return;
     const L = priv.legal;
     let target;
-    if (b.dataset.frac === "max") {
+    if (b.dataset.bb !== undefined) {
+      // ±BB nudge: 현재 입력값에서 빅블라인드 단위로 증감
+      const bb = (state && state.big_blind) || 1;
+      const cur = parseInt($("raise-amount").value, 10) || L.min_raise_to;
+      target = cur + parseInt(b.dataset.bb, 10) * bb;
+    } else if (b.dataset.frac === "max") {
       target = L.max_raise_to;
     } else {
       const frac = parseFloat(b.dataset.frac);
@@ -877,7 +883,7 @@ function renderControls() {
   $("preaction-bar").classList.toggle("hidden", !showPre);
 
   actionBar.classList.toggle("hidden", !myTurn);
-  if (!myTurn) return;
+  if (!myTurn) { wasMyTurn = false; return; }
 
   const L = priv.legal;
   $("fold-btn").disabled = !L.can_fold;
@@ -891,15 +897,26 @@ function renderControls() {
     const s = $("raise-slider");
     s.min = L.min_raise_to;
     s.max = L.max_raise_to;
-    s.value = L.min_raise_to;
     $("raise-amount").min = L.min_raise_to;
     $("raise-amount").max = L.max_raise_to;
-    $("raise-amount").value = L.min_raise_to;
+    if (!wasMyTurn) {
+      // 턴이 막 시작됨 -> 최소 레이즈로 초기화
+      s.value = L.min_raise_to;
+      $("raise-amount").value = L.min_raise_to;
+    } else {
+      // 같은 턴 중 재렌더(채팅/로그 등)는 입력값 유지(범위만 클램프).
+      // 안 그러면 베팅 입력 중 채팅이 오면 값이 최소값으로 튕김.
+      const cur = Math.min(L.max_raise_to,
+        Math.max(L.min_raise_to, parseInt($("raise-amount").value, 10) || L.min_raise_to));
+      s.value = cur;
+      $("raise-amount").value = cur;
+    }
     $("raise-btn").textContent =
       L.max_raise_to === L.min_raise_to ? "올인" : "레이즈";
   } else {
     rg.style.display = "none";
   }
+  wasMyTurn = true;
 }
 
 function renderSettings() {
@@ -943,6 +960,12 @@ function renderSettings() {
 
   // Per-player stack adjust rows.
   const list = $("adjust-list");
+  // 재렌더(채팅/로그 등) 시 입력 중인 추가/빼기 숫자가 100으로 초기화되지 않게 보존.
+  const prevAmt = {};
+  list.querySelectorAll(".adjust-row").forEach((r) => {
+    const inp = r.querySelector("input");
+    if (r.dataset.pid && inp) prevAmt[r.dataset.pid] = inp.value;
+  });
   list.innerHTML = "";
   if (!isHost) {
     list.innerHTML = '<p class="muted">방장만 스택을 조절할 수 있습니다.</p>';
@@ -954,8 +977,10 @@ function renderSettings() {
   state.players.forEach((p) => {
     const row = document.createElement("div");
     row.className = "adjust-row";
+    row.dataset.pid = p.id;
     const amt = document.createElement("input");
-    amt.type = "number"; amt.min = "1"; amt.value = "100";
+    amt.type = "number"; amt.min = "1";
+    amt.value = prevAmt[p.id] != null ? prevAmt[p.id] : "100";
     amt.disabled = state.hand_in_progress;
     const add = document.createElement("button");
     add.className = "arow-add"; add.textContent = "+추가";
