@@ -210,6 +210,11 @@ $("join-btn").onclick = () => {
 
 function openSocket(isReconnect) {
   awaitingRejoin = !!isReconnect;
+  // 기존 소켓이 남아있으면 닫고 새로 연다(좀비 연결 방지). onclose를 떼고 닫아야
+  // 그 close가 재접속 루프를 또 트리거하지 않는다.
+  if (ws) {
+    try { ws.onclose = null; ws.onmessage = null; ws.close(); } catch (e) {}
+  }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () =>

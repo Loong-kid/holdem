@@ -57,7 +57,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
-APP_VERSION = "v30-chart-library"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v31-conn-fix"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -480,18 +480,17 @@ class Room:
                 time_left = self.action_remaining
         public["time_left"] = time_left
         dead = []
-        # Iterate a SNAPSHOT: send_json awaits, and a concurrent join/leave/
-        # reconnect can mutate self.connections during that await. Iterating the
-        # live dict would raise "dictionary changed size during iteration" and
-        # kill the broadcast (and, in the run loop, freeze the whole table).
+        # public은 모든 수신자에게 동일하므로 한 번만 직렬화해서 재사용한다.
+        # (기존엔 연결 수만큼 public을 매번 직렬화 -> 7명이면 7배 CPU 낭비.)
+        public_json = json.dumps(public, ensure_ascii=False)
+        # Iterate a SNAPSHOT: send awaits, and a concurrent join/leave/reconnect can
+        # mutate self.connections during that await. Iterating the live dict would
+        # raise "dictionary changed size during iteration" and kill the broadcast.
         for ws, pid in list(self.connections.items()):
-            payload = {
-                "type": "state",
-                "public": public,
-                "private": self.game.private_state(pid),
-            }
+            priv_json = json.dumps(self.game.private_state(pid), ensure_ascii=False)
+            msg = '{"type":"state","public":' + public_json + ',"private":' + priv_json + '}'
             try:
-                await ws.send_json(payload)
+                await ws.send_text(msg)
             except Exception:
                 dead.append(ws)
         for ws in dead:
@@ -623,11 +622,19 @@ async def websocket_endpoint(ws: WebSocket):
                 token = (msg.get("token") or "").strip() or None
                 ip = client_ip(ws)
                 room = manager.get(room_id)
+                stale_ws = []
                 async with room.lock:
                     room.conn_name[ws] = name
                     bound = room.pid_for_token(token) or room.reconnected_pid(name)
                     if bound is not None:
                         pid = bound                     # resume the existing seat
+                        # 같은 좌석을 점유하던 옛(좀비) 연결을 끊는다 -> 한 사람 = 한 연결.
+                        # 모바일 재접속 등으로 죽은 소켓이 남아 broadcast 대상이 부풀고
+                        # outbound/CPU가 시간에 따라 누적되던 문제를 막는다.
+                        stale_ws = [w for w, p in list(room.connections.items())
+                                    if p == pid and w is not ws]
+                        for w in stale_ws:
+                            room.connections.pop(w, None)
                         room.disconnected.pop(pid, None)
                         if token:
                             room.tokens[token] = pid
@@ -640,6 +647,11 @@ async def websocket_endpoint(ws: WebSocket):
                         pid = None                      # spectator
                         room.connections[ws] = None
                     seated_name = room.game._player(pid).name if pid else name
+                for w in stale_ws:                       # close outside the lock (best-effort)
+                    try:
+                        await w.close()
+                    except Exception:
+                        pass
                 await ws.send_json({"type": "joined", "id": pid, "room": room_id,
                                     "name": seated_name, "seated": pid is not None})
                 room.ensure_loop()      # make sure the timer/auto-deal clock is running
