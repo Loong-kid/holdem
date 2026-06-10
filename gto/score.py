@@ -9,8 +9,37 @@ verdict:
   limp       림프(RFI 비표준 액션)    ⚠️
   skip:...   채점 불가(변종/포지션/스택/차트없음)
 """
-from .decisions import extract_rfi, extract_vs_raise
-from .charts import ChartProvider, SCORABLE_POS, categorize_3bet, cat_label
+from .decisions import extract_rfi, extract_vs_raise, extract_vs3bet, extract_vs4bet
+from .charts import (ChartProvider, SCORABLE_POS, categorize_3bet, cat_label,
+                     categorize_vs3bet, categorize_vs4bet)
+
+# 액션 공격성 순서 — 내 액션이 권장보다 위/아래면 과공격/소극으로 판정
+VS_LADDER = ["fold", "call", "4bet", "allin"]
+
+def _grade(action, allowed):
+    """내 액션 vs 허용집합 -> ok_<action> / too_aggro / too_passive / wrong / None(skip)."""
+    if not allowed:
+        return None
+    if action in allowed:
+        return "ok_" + action
+    if action not in VS_LADDER:
+        return "wrong"
+    mr = VS_LADDER.index(action)
+    recs = [VS_LADDER.index(a) for a in allowed if a in VS_LADDER]
+    if not recs:
+        return "wrong"
+    if mr > max(recs):
+        return "too_aggro"      # 권장보다 공격적(예: 폴드/콜 권장인데 4벳)
+    if mr < min(recs):
+        return "too_passive"    # 권장보다 소극적(예: 4벳 권장인데 폴드)
+    return "wrong"
+
+def _vs_label(allowed):
+    """매트릭스 표시용 대표 범주(공격성 높은 것 우선)."""
+    for a in ("allin", "4bet", "call", "fold"):
+        if a in allowed:
+            return a
+    return None
 
 def score_decision(d, cp):
     if d["variant"] != "holdem":
@@ -62,6 +91,35 @@ def score_vs_raise(d, cp):
     if act in ("3bet", "call") and allowed == {"fold"}:
         return "vs_too_loose"
     return "vs_wrong"
+
+def score_vs3bet(d, cp):
+    """내 오픈 후 상대 3벳 직면 -> 4벳/콜/폴드 (OPENRAISING 색)."""
+    if d["variant"] != "holdem":
+        return "skip:variant"
+    if not d["hand"]:
+        return "skip:nohand"
+    look = cp.lookup_vs3bet(d["pos"], d["eff_bb"])
+    if look is None:
+        return "skip:nochart"
+    hands, tier, ptok = look
+    cell = hands.get(d["hand"])
+    allowed = categorize_vs3bet(cell["action"] if cell else "FOLD")
+    allowed = {a for a in allowed if a in ("4bet", "call", "fold")}   # 림프는 범위 밖
+    return _grade(d["action"], allowed) or "skip:noplan"
+
+def score_vs4bet(d, cp):
+    """내 3벳 후 상대 4벳 직면 -> 올인/콜/폴드 (FLATTING 색)."""
+    if d["variant"] != "holdem":
+        return "skip:variant"
+    if not d["hand"]:
+        return "skip:nohand"
+    look = cp.lookup_vs4bet(d["pos"], d["opener_pos"], d["eff_bb"])
+    if look is None:
+        return "skip:nochart"
+    hands, tier, label = look
+    cell = hands.get(d["hand"])
+    allowed = categorize_vs4bet(cell["action"] if cell else "FOLD")
+    return _grade(d["action"], allowed) or "skip:noplan"
 
 def score_export(export, db_path="chart_db.json", hero=None):
     cp = ChartProvider(db_path)
@@ -182,6 +240,55 @@ def build_report(export, db_path="chart_db.json", hero=None):
                 }
         rows.append({
             "kind": "vs_raise", "hand_number": d["hand_number"], "player": d["player"],
+            "pos": d["pos"], "opener_pos": d["opener_pos"], "hand": d["hand"],
+            "hole": d["hole"], "eff_bb": d["eff_bb"], "n_players": d["n_players"],
+            "action": d["action"], "verdict": v, "chart_key": key,
+        })
+        note_player(d["player"])
+
+    # --- vs-3bet (내 오픈 -> 상대 3벳 -> 4벳/콜/폴드) ---
+    for d in extract_vs3bet(export):
+        v = score_vs3bet(d, cp)
+        key = None
+        look = cp.lookup_vs3bet(d["pos"], d["eff_bb"])
+        if look:
+            hands, tier, ptok = look
+            key = f"vs3:{d['pos']}|{tier}"
+            if key not in charts:
+                acts = {}
+                for h, c in hands.items():
+                    lab = _vs_label({a for a in categorize_vs3bet(c["action"])
+                                     if a in ("4bet", "call", "fold")})
+                    if lab and lab != "fold":
+                        acts[h] = lab
+                charts[key] = {"kind": "vs_3bet", "pos": f"{d['pos']} 오픈→3벳직면",
+                               "tier": tier, "actions": acts}
+        rows.append({
+            "kind": "vs_3bet", "hand_number": d["hand_number"], "player": d["player"],
+            "pos": d["pos"], "opener_pos": None, "hand": d["hand"], "hole": d["hole"],
+            "eff_bb": d["eff_bb"], "n_players": d["n_players"],
+            "action": d["action"], "verdict": v, "chart_key": key,
+        })
+        note_player(d["player"])
+
+    # --- vs-4bet (내 3벳 -> 상대 4벳 -> 올인/콜/폴드) ---
+    for d in extract_vs4bet(export):
+        v = score_vs4bet(d, cp)
+        key = None
+        look = cp.lookup_vs4bet(d["pos"], d["opener_pos"], d["eff_bb"])
+        if look:
+            hands, tier, label = look
+            key = f"vs4:{label}|{tier}"
+            if key not in charts:
+                acts = {}
+                for h, c in hands.items():
+                    lab = _vs_label(categorize_vs4bet(c["action"]))
+                    if lab and lab != "fold":
+                        acts[h] = lab
+                charts[key] = {"kind": "vs_4bet", "pos": f"{label} 3벳→4벳직면",
+                               "tier": tier, "actions": acts}
+        rows.append({
+            "kind": "vs_4bet", "hand_number": d["hand_number"], "player": d["player"],
             "pos": d["pos"], "opener_pos": d["opener_pos"], "hand": d["hand"],
             "hole": d["hole"], "eff_bb": d["eff_bb"], "n_players": d["n_players"],
             "action": d["action"], "verdict": v, "chart_key": key,

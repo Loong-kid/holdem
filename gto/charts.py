@@ -35,6 +35,38 @@ def cat_label(actions):
     if "call" in actions:
         return "call"
     return "fold"
+
+def categorize_vs3bet(action):
+    """OPENRAISING 셀 색(=오픈 후 vs-3bet 플랜) -> 허용 액션 {4bet,call,fold}.
+    빈 집합이면 채점 불가(Openraise만 표기·림프 등) -> skip. 흰색(FOLD)은 애초에 오픈 안 함."""
+    if not action or action == "FOLD":
+        return set()
+    t = action.lower()
+    s = set()
+    if "fold vs 3b" in t:
+        s.add("fold")
+    if "call" in t and "3b" in t:        # Call 3B, Call Vs 3B, CALL 3B ...
+        s.add("call")
+    if "4b" in t or "jam" in t:           # 4B Value/Bluff/Jam, Openjam ...
+        s.add("4bet")
+    if "limp" in t:
+        s.add("limp")
+    return s
+
+def categorize_vs4bet(action):
+    """FLATTING 셀 색(=3벳 후 vs-4bet 플랜) -> 허용 액션 {call,allin,fold}.
+    명시된 것만 채점(3B+Call4B / Broke·All In / .../Fold). 그 외(3B Value 단독 등)는 빈집합 -> skip."""
+    if not action or action == "FOLD":
+        return set()
+    t = action.lower()
+    s = set()
+    if "call 4b" in t:
+        s.add("call")
+    if "broke" in t or "all in" in t or "jam" in t:
+        s.add("allin")
+    if "fold" in t:                       # '3B / Fold', '.../Fold'
+        s.add("fold")
+    return s
 # 채점 대상 포지션. 비블라인드(UTG~BTN)는 OPENRAISING 차트로, SB는 헤즈업일 때만
 # HU 차트로 채점(3인+ 폴드-투-SB는 아직 보류). BB는 RFI가 아니라 추출 단계에서 제외됨.
 SCORABLE_POS = {"UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB"}
@@ -157,6 +189,27 @@ class ChartProvider:
         if hands is None:
             return None
         return hands, tier, f"{hero} vs {opener}"
+
+    def lookup_vs3bet(self, opener_pos, eff_bb):
+        """내 오픈 후 상대 3벳에 대한 대응 차트. 내가 오픈했으니 OPENRAISING {내pos} 재활용.
+        반환 (hands, tier, ptok) — 각 핸드 action을 categorize_vs3bet로 해석."""
+        tier = stack_tier(eff_bb)
+        ptok = POS_MAP.get(opener_pos)
+        if tier is None or ptok is None:
+            return None
+        hands = self.index.get((tier, ptok))
+        return (hands, tier, ptok) if hands else None
+
+    def lookup_vs4bet(self, hero_pos, opener_pos, eff_bb):
+        """내 3벳 후 상대 4벳에 대한 대응 차트. FLATTING {내pos} vs {오프너pos} 재활용.
+        각 핸드 action을 categorize_vs4bet로 해석."""
+        tier = tier_3bet(eff_bb)
+        hero = POS_MAP.get(hero_pos)
+        opener = POS_MAP.get(opener_pos)
+        if tier is None or hero is None or opener is None:
+            return None
+        hands = self.threebet.get((tier, hero, opener))
+        return (hands, tier, f"{hero} vs {opener}") if hands else None
 
     def available(self):
         return (sorted(self.index.keys())

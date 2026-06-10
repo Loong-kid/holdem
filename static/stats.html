@@ -64,6 +64,8 @@
   .matrix td.open { background:#2f6b45; color:#eaffea; }
   .matrix td.cat-3bet { background:#a85a2a; color:#ffeede; }
   .matrix td.cat-call { background:#2f6b45; color:#eaffea; }
+  .matrix td.cat-4bet { background:#9b3030; color:#ffe; }
+  .matrix td.cat-allin { background:#7a1f1f; color:#fff; }
   .matrix td.mine-loose { background:#b13030; color:#fff; font-weight:800; }
   .matrix td.mine-tight { outline:2px solid #5b8dff; outline-offset:-2px; }
   .matrix td.mine-ok { outline:2px solid #7CFC00; outline-offset:-2px; }
@@ -372,7 +374,7 @@ function renderLib(idx) {
     html += "<tr>";
     for (let j=0;j<13;j++) {
       const h = cellHand(i,j), a = acts[h];
-      const cls = a ? (ch.kind === "vs_raise" ? (a === "3bet" ? "cat-3bet" : "cat-call") : "open") : "";
+      const cls = cellClass(ch.kind, a);
       html += `<td class="${cls}" title="${h}${a ? " · "+a : ""}">${h}</td>`;
     }
     html += "</tr>";
@@ -382,14 +384,26 @@ function renderLib(idx) {
 
 const VLABEL = {
   ok_open:"✅ 정상오픈", ok_fold:"✅ 정상폴드", ok_3bet:"✅ 3벳", ok_call:"✅ 콜",
+  ok_4bet:"✅ 4벳", ok_allin:"✅ 올인",
   too_loose:"🔴 루즈오픈", too_tight:"🔵 타이트폴드",
   vs_too_loose:"🔴 루즈참여", vs_too_tight:"🔵 타이트폴드", vs_wrong:"🟨 액션틀림",
+  too_aggro:"🟥 과공격", too_passive:"🔵 소극", wrong:"🟨 액션틀림",
   limp:"🟡 림프"};
-const VORDER = {too_loose:0, vs_too_loose:0, too_tight:1, vs_too_tight:1, vs_wrong:2,
-  limp:3, ok_open:4, ok_3bet:4, ok_call:4, ok_fold:6, skip:7};
+const VORDER = {too_loose:0, vs_too_loose:0, too_aggro:0, too_tight:1, vs_too_tight:1,
+  too_passive:1, vs_wrong:2, wrong:2, limp:3,
+  ok_open:4, ok_3bet:4, ok_call:4, ok_4bet:4, ok_allin:4, ok_fold:6, skip:7};
+const KIND = {rfi:"오픈", vs_raise:"vs레이즈", vs_3bet:"오픈→vs3벳", vs_4bet:"3벳→vs4벳"};
 const isOk = v => !!v && v.startsWith("ok");
-const isLoose = v => v==="too_loose" || v==="vs_too_loose";
-const isTight = v => v==="too_tight" || v==="vs_too_tight";
+const isLoose = v => v==="too_loose" || v==="vs_too_loose" || v==="too_aggro";
+const isTight = v => v==="too_tight" || v==="vs_too_tight" || v==="too_passive";
+// 매트릭스 셀 색: 종류별로 액션 범주를 색에 매핑
+function cellClass(kind, a) {
+  if (!a) return "";
+  if (kind === "vs_raise") return a === "3bet" ? "cat-3bet" : "cat-call";
+  if (kind === "vs_3bet")  return a === "4bet" ? "cat-4bet" : "cat-call";
+  if (kind === "vs_4bet")  return a === "allin" ? "cat-allin" : (a === "call" ? "cat-call" : "cat-4bet");
+  return "open";   // rfi
+}
 
 function renderGTO(player) {
   const rows = GTO_DATA.rows.filter(r => !player || r.player === player);
@@ -399,7 +413,7 @@ function renderGTO(player) {
   const ok = scored.filter(r => isOk(r.verdict)).length;
   const loose = scored.filter(r => isLoose(r.verdict)).length;
   const tight = scored.filter(r => isTight(r.verdict)).length;
-  const wrong = scored.filter(r => r.verdict === "vs_wrong").length;
+  const wrong = scored.filter(r => r.verdict === "vs_wrong" || r.verdict === "wrong").length;
   const acc = scored.length ? (ok/scored.length*100).toFixed(0)+"%" : "-";
 
   document.getElementById("gto-summary").innerHTML = `
@@ -459,8 +473,7 @@ function renderMatrices() {
       html += "<tr>";
       for (let j=0;j<13;j++) {
         const h = cellHand(i,j), a = acts[h], v = myk[h];
-        let cls = "";
-        if (a) cls = ch.kind === "vs_raise" ? (a === "3bet" ? "cat-3bet" : "cat-call") : "open";
+        let cls = cellClass(ch.kind, a);
         if (isLoose(v)) cls += " mine-loose";
         else if (isTight(v)) cls += " mine-tight";
         else if (v === "vs_wrong") cls += " mine-wrong";
@@ -479,7 +492,6 @@ function renderMatrices() {
 
 // 핸드별 판정 (리크 먼저). 행 클릭 = 그 핸드만 레인지에 표시
 function renderHandList() {
-  const KIND = {rfi:"오픈", vs_raise:"vs레이즈"};
   const hc = [["hand_number","#"],["player","플레이어"],["kind","종류"],["pos","포지션"],
     ["opener_pos","vs"],["hand","핸드"],["eff_bb","유효bb"],["action","액션"],["verdict","판정"]];
   document.querySelector("#gto-rows thead").innerHTML = "<tr>" + hc.map(([,t])=>`<th>${t}</th>`).join("") + "</tr>";

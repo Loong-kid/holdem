@@ -144,6 +144,71 @@ def extract_vs_raise(export):
     return out
 
 
+def _extract_facing(export, target_level):
+    """프리플랍 레이즈 시퀀스에서 '직전 레이저가 다음 레이즈에 직면한 첫 대응'을 추출.
+    target_level=2: 내가 오픈(R1) 후 상대 3벳(R2) → 내 4벳/콜/폴드 (vs-3bet)
+    target_level=3: 내가 3벳(R2) 후 상대 4벳(R3) → 내 올인/콜/폴드 (vs-4bet)
+    hero = (target_level-1)번째 레이저, attacker = target_level번째 레이저.
+    단일 라인 가정(콜드콜/스퀴즈는 raise 시퀀스만 보므로 근사)."""
+    out = []
+    for hand, events in _iter_hands(export):
+        if not events or events[0].get("type") != "start":
+            continue
+        start = events[0]
+        variant = start.get("variant", "holdem")
+        bb = start.get("bb") or 0
+        players = {p["name"]: p for p in start.get("players", [])}
+        n_players = len(start.get("players", []))
+
+        raisers = []        # 레이즈한 사람 순서(이름)
+        responded = False
+        for e in events:
+            if e.get("type") != "action":
+                continue
+            if e.get("street") != "preflop":
+                break
+            name = e.get("name")
+            label = (e.get("label") or "")
+            is_raise = label.startswith("raise") or label.startswith("all-in")
+            is_call = label == "call"
+
+            hero = raisers[target_level - 2] if len(raisers) >= target_level - 1 else None
+            if hero is not None and len(raisers) >= target_level and name == hero and not responded:
+                attacker = raisers[target_level - 1]
+                hp = players.get(hero, {})
+                ap = players.get(attacker, {})
+                hs, as_ = hp.get("stack") or 0, ap.get("stack") or 0
+                eff = min(hs, as_) if (hs and as_) else (hs or as_)
+                if is_raise:
+                    action = "4bet" if target_level == 2 else "allin"
+                elif is_call:
+                    action = "call"
+                else:
+                    action = "fold"
+                out.append({
+                    "hand_number": hand.get("number") or hand.get("hand_number"),
+                    "variant": variant,
+                    "player": hero,
+                    "pos": hp.get("pos", ""),
+                    "opener_pos": players.get(raisers[0], {}).get("pos", "") if raisers else "",
+                    "hole": hp.get("hole", []),
+                    "hand": to_hand_notation(hp.get("hole", [])),
+                    "eff_bb": round(eff / bb, 1) if bb else None,
+                    "n_players": n_players,
+                    "action": action,
+                })
+                responded = True
+            if is_raise:
+                raisers.append(name)
+    return out
+
+def extract_vs3bet(export):
+    return _extract_facing(export, 2)
+
+def extract_vs4bet(export):
+    return _extract_facing(export, 3)
+
+
 if __name__ == "__main__":
     import json, collections
     export = json.load(open("fake_export.json", encoding="utf-8"))
