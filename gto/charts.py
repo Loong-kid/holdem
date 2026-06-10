@@ -163,6 +163,25 @@ class ChartProvider:
                 + ["HU SB:" + t for t in sorted(self.hu_sb)]
                 + ["3B " + "/".join(k) for k in sorted(self.threebet)])
 
+    def library(self):
+        """채점과 무관하게 참고용으로 보여줄 전체 차트 목록(레인지 매트릭스 포함)."""
+        out = []
+        for (tier, ptok), hands in self.index.items():
+            out.append({"kind": "rfi", "group": "오픈 (RFI)", "tier": tier, "pos": ptok,
+                        "label": f"{ptok} · {tier}",
+                        "actions": {h: "open" for h, c in hands.items() if c["action"] != "FOLD"}})
+        for tier, hands in self.hu_sb.items():
+            out.append({"kind": "rfi", "group": "오픈 (헤즈업 SB)", "tier": "HU " + tier, "pos": "SB",
+                        "label": f"SB 헤즈업 · {tier}",
+                        "actions": {h: "open" for h, c in hands.items() if c["action"] != "FOLD"}})
+        for (tier, hero, opener), hands in self.threebet.items():
+            out.append({"kind": "vs_raise", "group": "vs레이즈 (3벳/콜)", "tier": tier,
+                        "pos": f"{hero} vs {opener}", "label": f"{hero} vs {opener} · {tier}",
+                        "actions": {h: cat_label(categorize_3bet(c["action"]))
+                                    for h, c in hands.items()
+                                    if categorize_3bet(c["action"]) != {"fold"}}})
+        return out
+
 
 if __name__ == "__main__":
     cp = ChartProvider()

@@ -43,12 +43,21 @@ except Exception:
     build_report = None
     GTO_OK = False
 
+_chart_provider = None
+def _get_chart_provider():
+    """Cached ChartProvider (chart_db is large; load once)."""
+    global _chart_provider
+    if _chart_provider is None:
+        from gto.charts import ChartProvider
+        _chart_provider = ChartProvider(str(CHART_DB))
+    return _chart_provider
+
 NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the next hand
 RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
-APP_VERSION = "v29-mobile-spec"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v30-chart-library"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -581,6 +590,16 @@ async def gto(room: str = "main"):
     export_obj = {"room": room, "hands": hands}
     report = await asyncio.to_thread(build_report, export_obj, str(CHART_DB))
     return {"ok": True, "room": room, "count": len(hands), **report}
+
+
+@app.get("/gto_charts")
+async def gto_charts():
+    """Full reference chart library (all match-ups/stacks), independent of any room.
+    Lets the GTO tab show ranges for spots the player hasn't actually been in."""
+    if not GTO_OK:
+        return {"ok": False, "error": "GTO 차트 데이터가 서버에 없습니다."}
+    cp = await asyncio.to_thread(_get_chart_provider)
+    return {"ok": True, "charts": cp.library()}
 
 
 @app.websocket("/ws")

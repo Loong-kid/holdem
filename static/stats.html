@@ -128,6 +128,10 @@
         <div class="matrix-wrap" id="gto-matrix"></div>
         <h2>핸드별 RFI 판정 <span class="muted">(리크 먼저 정렬)</span></h2>
         <div class="rows-wrap"><table id="gto-rows"><thead></thead><tbody></tbody></table></div>
+
+        <h2>📖 정답 차트 라이브러리 <span class="muted">(내가 안 친 스팟도 참고 — 매치업 선택)</span></h2>
+        <div style="margin-bottom:10px"><select id="lib-select"></select></div>
+        <div class="matrix-wrap" id="lib-matrix"></div>
       </div>
     </div>
   </div>
@@ -335,7 +339,45 @@ async function loadGTO() {
     sel.onchange = () => renderGTO(sel.value);
     renderGTO("");
     gm.style.display="none"; gb.style.display="block";
+    loadLib();
   } catch (e) { gm.textContent = "GTO 불러오기 실패: " + e; }
+}
+
+// 정답 차트 라이브러리: 채점과 무관하게 모든 매치업/스택 차트를 참고용으로
+let LIB = [];
+async function loadLib() {
+  if (LIB.length) return;   // 한 번만 로드
+  try {
+    const res = await fetch("/gto_charts");
+    const data = await res.json();
+    if (!data.ok || !data.charts || !data.charts.length) return;
+    LIB = data.charts;
+    const sel = document.getElementById("lib-select");
+    const groups = {};
+    LIB.forEach((c, i) => { (groups[c.group] = groups[c.group] || []).push(i); });
+    sel.innerHTML = Object.keys(groups).map(g =>
+      `<optgroup label="${g}">` +
+      groups[g].map(i => `<option value="${i}">${LIB[i].label}</option>`).join("") +
+      `</optgroup>`).join("");
+    sel.onchange = () => renderLib(+sel.value);
+    renderLib(+sel.value || 0);
+  } catch (e) { /* 라이브러리는 부가기능이라 실패해도 조용히 */ }
+}
+function renderLib(idx) {
+  const wrap = document.getElementById("lib-matrix"); wrap.innerHTML = "";
+  const ch = LIB[idx]; if (!ch) return;
+  const acts = ch.actions;
+  let html = `<div class="matrix-box"><h3>${ch.label}</h3><table class="matrix">`;
+  for (let i=0;i<13;i++) {
+    html += "<tr>";
+    for (let j=0;j<13;j++) {
+      const h = cellHand(i,j), a = acts[h];
+      const cls = a ? (ch.kind === "vs_raise" ? (a === "3bet" ? "cat-3bet" : "cat-call") : "open") : "";
+      html += `<td class="${cls}" title="${h}${a ? " · "+a : ""}">${h}</td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</table></div>"; wrap.innerHTML = html;
 }
 
 const VLABEL = {
