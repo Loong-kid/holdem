@@ -47,8 +47,8 @@ NEXT_HAND_DELAY = 5.0      # seconds to show results before auto-dealing the nex
 RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
-DISCONNECT_GRACE = 60      # seconds a dropped player keeps their seat to reconnect
-APP_VERSION = "v28-3bet-gto"   # bump on deploy so we can confirm what's live
+DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
+APP_VERSION = "v29-mobile-spec"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -336,10 +336,17 @@ class Room:
         now = self._now()
         changed = False
 
-        # Drop players whose reconnect grace period has run out.
+        # Grace expired: instead of removing the player (which loses the seat and
+        # forces a fresh login on mobile, where the reconnect timer is frozen in the
+        # background), keep the seat + token and just sit them out. They auto-resume
+        # via their browser token whenever they come back.
         if self.disconnected:
             for pid in [k for k, dl in self.disconnected.items() if now >= dl]:
-                self.drop_player(pid)
+                self.disconnected.pop(pid, None)
+                p = self.game._player(pid)
+                if p:
+                    self.game.set_sitting_out(pid, True)
+                    self.game.log.append(f"{p.name} 자리비움 (연결 끊김 — 좌석 유지, 재접속 시 복귀).")
                 changed = True
 
         # Tournament blind clock: independent of whose turn it is. Advancing a
@@ -452,6 +459,8 @@ class Room:
         public["tournament"] = self.tournament_state()
         public["allow_same_ip"] = self.allow_same_ip
         public["spectators"] = sum(1 for v in self.connections.values() if v is None)
+        public["spectator_names"] = [self.conn_name.get(ws, "관전자")
+                                     for ws, v in self.connections.items() if v is None]
         # Seconds left for the current actor (clients run their own countdown from
         # this). While paused we send the frozen remaining so it shows but doesn't tick.
         time_left = None

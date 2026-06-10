@@ -185,6 +185,7 @@ setInterval(() => {
 // its seat (and stops one browser from grabbing multiple seats).
 let myName = null, myRoom = null;   // remembered so we can rejoin the same seat
 let reconnectTries = 0;
+let lastSpectatorNames = [];        // spectator display names (for the click popup)
 let awaitingRejoin = false;         // this socket is a reconnect attempt awaiting "joined"
 let joinedOnce = false;             // we've successfully entered a room at least once
 
@@ -265,8 +266,8 @@ function onSocketMessage(msg) {
 }
 
 function onSocketClose() {
-  if (joinedOnce && reconnectTries < 30) {
-    // Keep trying to resume within the grace window (~30 * 2s = 60s).
+  if (joinedOnce && reconnectTries < 90) {
+    // Keep trying to resume (~90 * 2s = 180s, covers the server grace window).
     reconnectTries++;
     flashStatus(`연결이 끊겼습니다. 재접속 시도 중... (${reconnectTries})`);
     setTimeout(() => openSocket(true), 2000);
@@ -277,6 +278,18 @@ function onSocketClose() {
   }
 }
 
+// Mobile: when the tab returns to the foreground the socket/timers may have been
+// frozen in the background. Reconnect immediately so the seat resumes (via token)
+// instead of waiting for the throttled retry loop to fire.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  if (!joinedOnce || reconnectTries >= 99) return;      // skip after intentional leave
+  if (!ws || ws.readyState === WebSocket.CLOSING || ws.readyState === WebSocket.CLOSED) {
+    reconnectTries = 0;
+    openSocket(true);
+  }
+});
+
 // Take a seat / leave a seat.
 $("take-seat-btn").onclick = () => {
   const nm = (myName && myName.trim()) || $("name-input").value.trim() || "Player";
@@ -286,6 +299,34 @@ $("take-seat-btn").onclick = () => {
 $("stand-btn").onclick = () => {
   if (confirm("자리에서 일어나 관전 모드로 전환할까요? (스택 기록은 남습니다)"))
     ws.send(JSON.stringify({ type: "stand" }));
+};
+
+// Click the spectator label to see WHO is watching.
+$("spectator-label").onclick = () => {
+  const open = document.getElementById("spec-popup");
+  if (open) { open.remove(); return; }
+  if (!lastSpectatorNames.length) return;
+  const pop = document.createElement("div");
+  pop.id = "spec-popup";
+  pop.style.cssText = "position:fixed;z-index:200;background:#16271d;border:1px solid #3c5c48;" +
+    "border-radius:8px;padding:8px 12px;font-size:13px;color:#cfe3d6;max-height:50vh;" +
+    "overflow:auto;box-shadow:0 4px 16px rgba(0,0,0,.5);min-width:120px";
+  const t = document.createElement("b");
+  t.textContent = `관전자 ${lastSpectatorNames.length}명`;
+  t.style.cssText = "display:block;color:#e8c468;margin-bottom:4px";
+  pop.appendChild(t);
+  lastSpectatorNames.forEach(n => {
+    const d = document.createElement("div"); d.textContent = n; pop.appendChild(d);
+  });
+  document.body.appendChild(pop);
+  const r = $("spectator-label").getBoundingClientRect();
+  pop.style.left = Math.max(6, r.left) + "px";
+  pop.style.top = (r.bottom + 4) + "px";
+  setTimeout(() => document.addEventListener("click", function close(e) {
+    if (!pop.contains(e.target) && e.target !== $("spectator-label")) {
+      pop.remove(); document.removeEventListener("click", close);
+    }
+  }), 0);
 };
 
 $("leave-btn").onclick = () => {
@@ -617,11 +658,14 @@ function render() {
   // Spectator mode = I'm connected but not seated (myId is null).
   document.body.classList.toggle("spectating", !myId);
   const specs = state.spectators || 0;
+  lastSpectatorNames = state.spectator_names || [];
   let specText = "";
   if (!myId) specText = "👀 관전 중" + (specs > 1 ? ` · 관전 ${specs}명` : "");
   else if (specs > 0) specText = `👀 관전 ${specs}명`;
+  if (specText && specs > 0) specText += " ▾";   // 클릭하면 명단
   $("spectator-label").textContent = specText;
   $("spectator-label").classList.toggle("hidden", !specText);
+  $("spectator-label").style.cursor = specs > 0 ? "pointer" : "default";
 
   // Game start/pause toggle (host only; hidden for others via CSS).
   $("game-toggle-btn").textContent = state.auto_running ? "⏸ 게임 멈춤" : "▶ 게임 시작";
