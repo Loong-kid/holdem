@@ -222,6 +222,15 @@ button.small.accent { background: var(--gold); color: #1a1a1a; border-color: var
   color: #ffe9a8;
   min-height: 16px;
 }
+/* Highlight the live bet amount so it reads at a glance (chip-like pill). */
+.seat .pbet:not(:empty) {
+  display: inline-block;
+  background: #2e2510;
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  padding: 1px 9px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
 .seat .paction { font-size: 11px; color: #9fbfa9; min-height: 14px; }
 .pos-chip {
   display: inline-block;
@@ -550,7 +559,7 @@ body:not(.spectating) .spectator-only { display: none !important; }
   .community { gap: 4px; min-height: 0; }
   .card { width: 44px; height: 62px; border-radius: 6px; }
   .card .corner-top .r, .card .corner-bottom .r { font-size: 15px; }
-  .card .corner-top .s, .card .corner-bottom .s { font-size: 11px; }
+  .card .corner-top .s, .card .corner-bottom .s { font-size: 13px; }   /* bigger so ♠/♣ are distinguishable */
   .card .pip { font-size: 30px; }
   .pot { font-size: 14px; margin-top: 6px; }
   .status { font-size: 12px; }
@@ -558,19 +567,21 @@ body:not(.spectating) .spectator-only { display: none !important; }
 
   /* Seats: tighter plates + tiny hole cards. */
   .seat { width: 84px; }
-  .seat .player-cards { min-height: 46px; gap: 3px; margin-bottom: 2px; }
+  /* Extra gap below the cards + put the nameplate on a higher layer so a
+     neighbouring seat's card can't visually cover the stack. */
+  .seat .player-cards { min-height: 46px; gap: 3px; margin-bottom: 5px; position: relative; z-index: 1; }
   .card.small { width: 30px; height: 44px; border-radius: 4px; }
-  .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 12px; }
-  .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 9px; }
+  .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 13px; }
+  .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 12px; }  /* ♠/♣ readable */
   .card.small .pip { font-size: 22px; }
-  .nameplate { padding: 4px 5px; font-size: 11px; border-radius: 8px; }
+  .nameplate { padding: 4px 5px; font-size: 11px; border-radius: 8px; position: relative; z-index: 2; }
   .nameplate .pchips { font-size: 11px; }
   /* Omaha on a phone: same size as Hold'em hole cards, just a tighter fan. */
   .player-cards.four .card.small:not(:last-child) { margin-right: -13px; }
-  /* On small cards the big centre suit crowds the corner rank/suit, so fade it
-     right down — the coloured corner label is what identifies the card here. */
-  .card .pip { opacity: 0.1; }
-  .seat .pbet { font-size: 11px; margin-top: 2px; }
+  /* Faint centre suit — kept low so it doesn't crowd the corner label, but a
+     touch more visible than before to help tell ♠/♣ apart. */
+  .card .pip { opacity: 0.16; }
+  .seat .pbet { font-size: 12px; margin-top: 3px; padding: 1px 7px; }
   .seat .paction { font-size: 10px; }
 
   /* Action bar: thumb-friendly; the raise controls wrap onto their own row. */
