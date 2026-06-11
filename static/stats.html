@@ -384,15 +384,16 @@ function renderLib(idx) {
 
 const VLABEL = {
   ok_open:"✅ 정상오픈", ok_fold:"✅ 정상폴드", ok_3bet:"✅ 3벳", ok_call:"✅ 콜",
-  ok_4bet:"✅ 4벳", ok_allin:"✅ 올인",
+  ok_4bet:"✅ 4벳", ok_allin:"✅ 올인", ok_check:"✅ 체크", ok_raise:"✅ 레이즈",
   too_loose:"🔴 루즈오픈", too_tight:"🔵 타이트폴드",
   vs_too_loose:"🔴 루즈참여", vs_too_tight:"🔵 타이트폴드", vs_wrong:"🟨 액션틀림",
   too_aggro:"🟥 과공격", too_passive:"🔵 소극", wrong:"🟨 액션틀림",
   limp:"🟡 림프"};
 const VORDER = {too_loose:0, vs_too_loose:0, too_aggro:0, too_tight:1, vs_too_tight:1,
   too_passive:1, vs_wrong:2, wrong:2, limp:3,
-  ok_open:4, ok_3bet:4, ok_call:4, ok_4bet:4, ok_allin:4, ok_fold:6, skip:7};
-const KIND = {rfi:"오픈", vs_raise:"vs레이즈", vs_3bet:"오픈→vs3벳", vs_4bet:"3벳→vs4벳"};
+  ok_open:4, ok_3bet:4, ok_call:4, ok_4bet:4, ok_allin:4, ok_check:4, ok_raise:4, ok_fold:6, skip:7};
+const KIND = {rfi:"오픈", vs_raise:"vs레이즈", vs_3bet:"오픈→vs3벳", vs_4bet:"3벳→vs4벳",
+  vs_sblimp:"SB림프 디펜스"};
 const isOk = v => !!v && v.startsWith("ok");
 const isLoose = v => v==="too_loose" || v==="vs_too_loose" || v==="too_aggro";
 const isTight = v => v==="too_tight" || v==="vs_too_tight" || v==="too_passive";
@@ -402,6 +403,7 @@ function cellClass(kind, a) {
   if (kind === "vs_raise") return a === "3bet" ? "cat-3bet" : "cat-call";
   if (kind === "vs_3bet")  return a === "4bet" ? "cat-4bet" : "cat-call";
   if (kind === "vs_4bet")  return a === "allin" ? "cat-allin" : (a === "call" ? "cat-call" : "cat-4bet");
+  if (kind === "vs_sblimp") return a === "allin" ? "cat-allin" : (a === "raise" ? "cat-3bet" : "cat-call");
   return "open";   // rfi
 }
 

@@ -53,6 +53,32 @@ def categorize_vs3bet(action):
         s.add("limp")
     return s
 
+def categorize_sblimp(action):
+    """BB/VS SB LIMP 셀 색(=헤즈업 BB가 SB 림프에 대응) -> {check,raise,allin}.
+    Check Behind=체크, 3.5x*=레이즈, All-In=올인, Mix=혼합(둘 다 허용)."""
+    if not action or action == "FOLD":
+        return set()
+    t = action.lower()
+    s = set()
+    if "check" in t:
+        s.add("check")
+    if "3.5x" in t or "raise" in t:
+        s.add("raise")
+    if "all-in" in t or "all in" in t:
+        s.add("allin")
+    return s
+
+def sblimp_tier(eff_bb):
+    if eff_bb is None:
+        return None
+    if eff_bb >= 30:
+        return "30BB+"
+    if eff_bb >= 20:
+        return "20-25BB"
+    if eff_bb >= 15:
+        return "15-20BB"
+    return None
+
 def categorize_vs4bet(action):
     """FLATTING 셀 색(=3벳 후 vs-4bet 플랜) -> 허용 액션 {call,allin,fold}.
     명시된 것만 채점(3B+Call4B / Broke·All In / .../Fold). 그 외(3B Value 단독 등)는 빈집합 -> skip."""
@@ -155,6 +181,13 @@ class ChartProvider:
                 self.sb40 = c["hands"]
                 break
 
+        # 헤즈업 BB가 SB 림프에 대응하는 차트: BB/VS SB LIMP/{15-20BB|20-25BB|30BB+}
+        self.bb_sblimp = {}
+        for c in db["charts"]:
+            if c["category"] == "BB" and len(c["folders"]) >= 2 \
+                    and c["folders"][1] == "VS SB LIMP":
+                self.bb_sblimp[c["name"]] = c["hands"]
+
         # 3bet/플랫 차트: (tier, hero_tok, opener_tok) -> hands. name='BB VS SB' 등.
         self.threebet = {}
         for c in db["charts"]:
@@ -224,6 +257,14 @@ class ChartProvider:
             return None
         hands = self.threebet.get((tier, hero, opener))
         return (hands, tier, f"{hero} vs {opener}") if hands else None
+
+    def lookup_sblimp(self, eff_bb):
+        """헤즈업 BB가 SB 림프에 대응(체크/레이즈/올인). BB/VS SB LIMP/{스택대}."""
+        t = sblimp_tier(eff_bb)
+        if t is None:
+            return None
+        hands = self.bb_sblimp.get(t)
+        return (hands, t, "BB vs SB림프") if hands else None
 
     def available(self):
         return (sorted(self.index.keys())

@@ -208,6 +208,59 @@ def extract_vs3bet(export):
 def extract_vs4bet(export):
     return _extract_facing(export, 3)
 
+def extract_vs_sblimp(export):
+    """헤즈업(2인)에서 SB(버튼)가 림프(call)하면 BB의 대응(체크/레이즈/올인)."""
+    out = []
+    for hand, events in _iter_hands(export):
+        if not events or events[0].get("type") != "start":
+            continue
+        start = events[0]
+        variant = start.get("variant", "holdem")
+        bb = start.get("bb") or 0
+        players = {p["name"]: p for p in start.get("players", [])}
+        if len(start.get("players", [])) != 2:
+            continue
+        sb_limped = False
+        sb_name = None
+        for e in events:
+            if e.get("type") != "action":
+                continue
+            if e.get("street") != "preflop":
+                break
+            name = e.get("name")
+            label = (e.get("label") or "")
+            if not sb_limped:
+                # 헤즈업 첫 액터 = SB(버튼). call=림프, 그 외(raise/fold)면 림프 라인 아님.
+                if label == "call":
+                    sb_limped = True
+                    sb_name = name
+                    continue
+                break
+            if name == sb_name:
+                break
+            hp = players.get(name, {})
+            sp = players.get(sb_name, {})
+            hs, ss = hp.get("stack") or 0, sp.get("stack") or 0
+            eff = min(hs, ss) if (hs and ss) else (hs or ss)
+            if label.startswith("all-in"):
+                action = "allin"
+            elif label.startswith("raise"):
+                action = "raise"
+            elif label == "check":
+                action = "check"
+            else:
+                action = "fold"
+            out.append({
+                "hand_number": hand.get("number") or hand.get("hand_number"),
+                "variant": variant, "player": name,
+                "pos": hp.get("pos", ""), "opener_pos": "SB",
+                "hole": hp.get("hole", []), "hand": to_hand_notation(hp.get("hole", [])),
+                "eff_bb": round(eff / bb, 1) if bb else None,
+                "n_players": 2, "action": action,
+            })
+            break
+    return out
+
 
 if __name__ == "__main__":
     import json, collections
