@@ -155,13 +155,15 @@ function handRows(hand) {
   const start = ev.find(e => e.type === "start");
   const result = ev.find(e => e.type === "result");
   if (!start) return [];
-  const names = start.players.map(p => p.name);
+  // 이름 기준 dedup: 좀비 중복 좌석(같은 닉 2좌석)이 순익을 이중 계산하지 않게.
+  const seen = new Set(), names = [];
+  start.players.forEach(p => { if (!seen.has(p.name)) { seen.add(p.name); names.push(p.name); } });
   const pos = {}, hole = {};
   start.players.forEach(p => { pos[p.name] = p.pos || ""; hole[p.name] = (p.hole || []).join(" "); });
   const contributed = {}, won = {}, vpip = {}, pfr = {}, sawFlop = {}, folded = {};
   names.forEach(n => { contributed[n]=0; won[n]=0; });
   ev.forEach(e => {
-    if (e.type === "post") contributed[e.name] += e.amount || 0;
+    if (e.type === "post") contributed[e.name] = (contributed[e.name]||0) + (e.amount || 0);
     else if (e.type === "action") {
       const nm = e.name, label = e.label || "";
       contributed[nm] = (contributed[nm]||0) + (e.paid || 0);
@@ -178,9 +180,13 @@ function handRows(hand) {
   const showdown = !!(result && result.showdown);
   if (showdown) (result.reveals||[]).forEach(r => reachedSD.add(r.name));
   if (result) winnersOf(result).forEach(w => { won[w.name] = (won[w.name]||0) + (w.amount||0); });
-  return names.map(nm => ({
+  // "유령" 행: 데드 블라인드만 내고 카드는 못 받은 자리비움/이탈자.
+  // dealt=0으로 스탯(핸드 수/비율)엔 안 세지만, 순익엔 넣어 칩 합계를 0으로 지킨다.
+  const ghosts = Object.keys(contributed).concat(Object.keys(won))
+    .filter((nm, i, arr) => !seen.has(nm) && arr.indexOf(nm) === i);
+  return names.concat(ghosts).map(nm => ({
     room: hand.room||"", hand: hand.hand_number||hand.id, player: nm,
-    pos: pos[nm]||"", hole: hole[nm]||"",
+    pos: pos[nm]||"", hole: hole[nm]||"", dealt: seen.has(nm)?1:0,
     contributed: contributed[nm]||0, won: won[nm]||0, net: (won[nm]||0)-(contributed[nm]||0),
     vpip: vpip[nm]?1:0, pfr: pfr[nm]?1:0, saw_flop: sawFlop[nm]?1:0,
     showdown: reachedSD.has(nm)?1:0, won_at_sd: (reachedSD.has(nm)&&(won[nm]||0)>0)?1:0,
@@ -192,7 +198,7 @@ function aggregate(rows) {
   const m = {};
   rows.forEach(r => {
     const a = m[r.player] || (m[r.player] = {player:r.player, hands:0, net:0, vpip:0, pfr:0, saw_flop:0, showdown:0, won_at_sd:0});
-    a.hands++; a.net+=r.net; a.vpip+=r.vpip; a.pfr+=r.pfr; a.saw_flop+=r.saw_flop;
+    a.hands += r.dealt; a.net+=r.net; a.vpip+=r.vpip; a.pfr+=r.pfr; a.saw_flop+=r.saw_flop;
     a.showdown+=r.showdown; a.won_at_sd+=r.won_at_sd;
   });
   return Object.values(m).map(a => ({
@@ -281,7 +287,7 @@ function download(name, text) {
 }
 document.getElementById("csv-rows").onclick = () =>
   download(`holdem_${ROOM}_rows.csv`, toCSV(ROWS,
-    ["room","hand","player","pos","hole","contributed","won","net","vpip","pfr","saw_flop","showdown","won_at_sd"]));
+    ["room","hand","player","pos","hole","dealt","contributed","won","net","vpip","pfr","saw_flop","showdown","won_at_sd"]));
 document.getElementById("csv-players").onclick = () =>
   download(`holdem_${ROOM}_players.csv`, toCSV(
     PLAYERS.map(p=>({player:p.player, hands:p.hands, net:p.net, avg:p.avg.toFixed(2),

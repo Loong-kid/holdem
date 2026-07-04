@@ -43,14 +43,23 @@ def _winners(result: dict) -> list[dict]:
 
 
 def hand_rows(hand: dict) -> list[dict]:
-    """One row per player who was dealt into this hand."""
+    """One row per player who was dealt in, PLUS one row per "ghost" who only
+    posted a dead blind (sit-out/leaver: pays a blind but isn't in the start
+    snapshot). Ghost rows carry dealt=0 so stat rates don't count them as a
+    played hand, but their net keeps the chip sum at exactly 0."""
     events = hand.get("events", [])
     start = next((e for e in events if e["type"] == "start"), None)
     result = next((e for e in events if e["type"] == "result"), None)
     if not start:
         return []
 
-    names = [p["name"] for p in start["players"]]
+    # Dedup by name: a zombie double-seat (same nick twice in the snapshot,
+    # e.g. reconnect bug) would otherwise double-count that player's net.
+    names, _seen = [], set()
+    for p in start["players"]:
+        if p["name"] not in _seen:
+            _seen.add(p["name"])
+            names.append(p["name"])
     pos = {p["name"]: p.get("pos", "") for p in start["players"]}
     hole = {p["name"]: " ".join(p.get("hole", [])) for p in start["players"]}
 
@@ -90,8 +99,11 @@ def hand_rows(hand: dict) -> list[dict]:
         for w in _winners(result):
             won[w["name"]] += w.get("amount", 0)
 
+    # Ghosts: touched the pot (posted/won) but never dealt in this hand.
+    ghosts = [nm for nm in {*contributed, *won} if nm not in _seen]
+
     rows = []
-    for nm in names:
+    for nm in names + ghosts:
         net = won[nm] - contributed[nm]
         rows.append({
             "room": hand.get("room", ""),
@@ -99,6 +111,7 @@ def hand_rows(hand: dict) -> list[dict]:
             "player": nm,
             "pos": pos.get(nm, ""),
             "hole": hole.get(nm, ""),
+            "dealt": int(nm in _seen),
             "contributed": contributed[nm],
             "won": won[nm],
             "net": net,
@@ -126,7 +139,7 @@ def main():
     agg = defaultdict(lambda: defaultdict(int))
     for r in rows:
         a = agg[r["player"]]
-        a["hands"] += 1
+        a["hands"] += r["dealt"]   # dead-blind-only rows carry net but no hand
         for k in ("net", "vpip", "pfr", "saw_flop", "showdown", "won_at_sd"):
             a[k] += r[k]
 

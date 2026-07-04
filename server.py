@@ -667,7 +667,25 @@ async def websocket_endpoint(ws: WebSocket):
                 async with room.lock:
                     room.conn_name[ws] = name
                     entry = room.ledger.get(name)
-                    if (not room.allow_same_ip) and room.pid_for_ip(ip) is not None:
+                    # 같은 닉의 좌석이 이미 테이블에 있으면 절대 새 좌석을 만들지 않는다.
+                    # (ledger active 플래그만 믿으면 끊김 grace/자리비움으로 남은 좌석과
+                    #  중복 착석이 가능 -> start 스냅샷에 같은 닉 2좌석 = 통계 이중 계산 버그)
+                    # 살아있는 연결이 없는 좌석(끊김 잔류)이면 그 좌석을 그대로 이어받는다.
+                    existing = next((p for p in room.game.players
+                                     if p.name == name and not p.pending_removal), None)
+                    if existing is not None:
+                        if existing.id in room.connections.values():
+                            error = "이미 사용 중인 닉네임입니다. 다른 이름을 써주세요."
+                        else:
+                            pid = existing.id          # 한 이름 = 한 좌석 (승계)
+                            room.connections[ws] = pid
+                            room.disconnected.pop(pid, None)
+                            if token:
+                                room.tokens[token] = pid
+                            room.player_ip[pid] = ip
+                            if entry is not None:
+                                entry["active"] = True
+                    elif (not room.allow_same_ip) and room.pid_for_ip(ip) is not None:
                         error = ("같은 네트워크(IP)에서 이미 플레이 중입니다. 같은 와이파이에서 "
                                  "함께 치려면 방장이 설정에서 '같은 IP 허용'을 켜주세요.")
                     elif entry and entry["active"]:
