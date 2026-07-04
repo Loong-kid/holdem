@@ -41,6 +41,17 @@
               border-radius:4px; overflow:hidden; vertical-align:middle; margin-left:6px; }
   .bar { height:100%; background:linear-gradient(90deg,#3b8a5a,#7CFC00); }
   .muted { color:#7c9a8a; }
+  /* per-player position breakdown */
+  .pos-toggle { font-size:11px; padding:2px 8px; margin-left:8px; border-radius:5px;
+                border:1px solid #3c5c48; background:#122318; color:#9fbfa9;
+                cursor:pointer; font-weight:600; }
+  .pos-toggle:hover { color:#fff; border-color:#5b8a6b; }
+  .pos-toggle.open { color:var(--gold); border-color:var(--gold); }
+  tbody tr.pos-detail:hover { background:transparent; }
+  tr.pos-detail > td { background:#101d15; padding:8px 12px 14px 34px; }
+  table.pos-sub { width:auto; min-width:70%; background:#0e1a12; font-size:12px; }
+  table.pos-sub thead th { position:static; cursor:default; background:#152417; }
+  table.pos-sub thead th:hover { color:#9fbfa9; }
   .hint { color:#88a596; font-size:12px; margin:6px 0 0; }
   .rows-wrap { max-height:46vh; overflow:auto; border-radius:10px; }
   .tag { background:var(--gold); color:#1a1a1a; border-radius:4px; padding:1px 5px;
@@ -104,7 +115,7 @@
       <div class="cards" id="summary"></div>
       <h2>플레이어 통계 <span class="muted">(헤더 클릭 = 정렬)</span></h2>
       <table id="players"><thead></thead><tbody></tbody></table>
-      <p class="hint">VPIP=프리플랍 자발적 참여율 · PFR=프리플랍 레이즈율 · WTSD=쇼다운 도달률 · W$SD=쇼다운 승률 · 순익=획득−투입</p>
+      <p class="hint">VPIP=프리플랍 자발적 참여율 · PFR=프리플랍 레이즈율 · WTSD=쇼다운 도달률 · W$SD=쇼다운 승률 · 순익=획득−투입 · 이름 옆 <b>포지션 ▸</b> 버튼 = 포지션별 상세</p>
       <h2>핸드별 상세 <span class="muted">(player × hand)</span></h2>
       <div class="rows-wrap"><table id="rows"><thead></thead><tbody></tbody></table></div>
     </div>
@@ -214,10 +225,59 @@ function aggregate(rows) {
 const pct = x => (x*100).toFixed(0)+"%";
 const netCls = n => n>0 ? "net-pos" : n<0 ? "net-neg" : "";
 const netTxt = n => (n>0?"+":"")+n;
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+// --- per-player position breakdown ------------------------------------------
+const POS_ORDER = ["UTG","UTG+1","UTG+2","LJ","HJ","CO","BTN","SB","BB"];
+let expandedPlayers = new Set();   // 정렬해도 펼침 상태 유지
+
+function posStats(name) {
+  const m = {};
+  let ghostNet = 0;   // 데드 블라인드(카드 못 받은 핸드)의 순익 — 포지션 없음
+  ROWS.forEach(r => {
+    if (r.player !== name) return;
+    if (!r.dealt) { ghostNet += r.net; return; }
+    const key = r.pos || "미기록";
+    const a = m[key] || (m[key] = {pos:key, hands:0, net:0, vpip:0, pfr:0, showdown:0, won_at_sd:0});
+    a.hands++; a.net+=r.net; a.vpip+=r.vpip; a.pfr+=r.pfr;
+    a.showdown+=r.showdown; a.won_at_sd+=r.won_at_sd;
+  });
+  const arr = Object.values(m).sort((a,b) => {
+    const ia = POS_ORDER.indexOf(a.pos), ib = POS_ORDER.indexOf(b.pos);
+    return (ia<0?99:ia) - (ib<0?99:ib);
+  });
+  return {arr, ghostNet};
+}
+
+function posDetailHTML(name) {
+  const {arr, ghostNet} = posStats(name);
+  const head = ["포지션","핸드","순익","핸드당","VPIP","PFR","WTSD","W$SD"]
+    .map(t => `<th>${t}</th>`).join("");
+  const body = arr.map(a => {
+    const avg = a.hands ? a.net/a.hands : 0;
+    return `<tr>
+      <td class="pos">${esc(a.pos)}</td><td>${a.hands}</td>
+      <td class="${netCls(a.net)}">${netTxt(a.net)}</td>
+      <td class="${netCls(avg)}">${avg.toFixed(1)}</td>
+      <td>${pct(a.vpip/a.hands)}</td><td>${pct(a.pfr/a.hands)}</td>
+      <td>${pct(a.showdown/a.hands)}</td>
+      <td>${a.showdown ? pct(a.won_at_sd/a.showdown) : "-"}</td></tr>`;
+  }).join("");
+  const ghost = ghostNet !== 0
+    ? `<tr><td class="muted">데드블라인드</td><td class="muted">-</td>
+       <td class="${netCls(ghostNet)}">${netTxt(ghostNet)}</td>
+       <td class="muted" colspan="5">자리비움/이탈 중 블라인드만 낸 몫</td></tr>`
+    : "";
+  return `<table class="pos-sub"><thead><tr>${head}</tr></thead><tbody>${body}${ghost}</tbody></table>`;
+}
 
 // --- render ----------------------------------------------------------------
 const PCOLS = [
-  {k:"player", t:"플레이어", num:false},
+  {k:"player", t:"플레이어", num:false, fmt:r=>{
+    const open = expandedPlayers.has(r.player);
+    return `${esc(r.player)} <button class="pos-toggle${open?" open":""}" data-p="${encodeURIComponent(r.player)}">포지션 ${open?"▾":"▸"}</button>`;
+  }},
   {k:"hands", t:"핸드", num:true},
   {k:"net", t:"순익", num:true, fmt:r=>`<span class="${netCls(r.net)}">${netTxt(r.net)}</span>`},
   {k:"avg", t:"핸드당", num:true, fmt:r=>`<span class="${netCls(r.avg)}">${r.avg.toFixed(1)}</span>`},
@@ -243,8 +303,19 @@ function renderPlayers() {
     if (psort.k===k) psort.asc=!psort.asc; else { psort={k, asc:false}; }
     renderPlayers();
   });
-  document.querySelector("#players tbody").innerHTML = arr.map(r =>
-    "<tr>" + PCOLS.map(c => `<td>${c.fmt?c.fmt(r):r[c.k]}</td>`).join("") + "</tr>").join("");
+  document.querySelector("#players tbody").innerHTML = arr.map(r => {
+    let html = "<tr>" + PCOLS.map(c => `<td>${c.fmt?c.fmt(r):r[c.k]}</td>`).join("") + "</tr>";
+    if (expandedPlayers.has(r.player))
+      html += `<tr class="pos-detail"><td colspan="${PCOLS.length}">${posDetailHTML(r.player)}</td></tr>`;
+    return html;
+  }).join("");
+  document.querySelectorAll("#players .pos-toggle").forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    const name = decodeURIComponent(btn.dataset.p);
+    if (expandedPlayers.has(name)) expandedPlayers.delete(name);
+    else expandedPlayers.add(name);
+    renderPlayers();
+  });
 }
 
 const RCOLS = [["hand","핸드"],["player","플레이어"],["pos","포지션"],["hole","핸드패"],
