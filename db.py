@@ -179,6 +179,19 @@ async def save_hand(room: str, number: int, title: str, events: list):
     await asyncio.to_thread(_save)
 
 
+async def ping() -> int | None:
+    """Run a real query so Supabase counts the project as active (free tier pauses
+    after 7 idle days). Returns the stored hand count, or None without a DB."""
+    if not _pool:
+        return None
+
+    def _ping():
+        with _pool.connection() as con:
+            return con.execute("SELECT count(*) FROM hands").fetchone()[0]
+
+    return await asyncio.to_thread(_ping)
+
+
 async def list_hands(room: str, limit: int = 30) -> list[dict]:
     """Most recent hands first: [{number(=db id), title}, ...]."""
     if not _pool:

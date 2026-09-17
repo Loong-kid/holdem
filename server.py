@@ -25,7 +25,7 @@ def _now_iso() -> str:
 import json
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import db
@@ -57,7 +57,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
-APP_VERSION = "v34-bb-sblimp"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v35-keepalive"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -541,6 +541,19 @@ async def stats_page():
 async def health():
     """Quick check of whether replay persistence is wired to a database."""
     return {**db.status(), "version": APP_VERSION}
+
+
+@app.get("/keepalive")
+async def keepalive():
+    """Hit daily by GitHub Actions: wakes Render and touches the DB so the free
+    Supabase project never reaches its 7-day inactivity pause."""
+    try:
+        hands = await db.ping()
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": repr(e)}, status_code=503)
+    if hands is None:
+        return JSONResponse({"ok": False, "error": "db not connected"}, status_code=503)
+    return {"ok": True, "hands": hands, "version": APP_VERSION}
 
 
 async def _room_hands(room: str) -> list[dict]:
