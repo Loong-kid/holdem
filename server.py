@@ -548,11 +548,14 @@ async def keepalive():
     """Hit daily by GitHub Actions: wakes Render and touches the DB so the free
     Supabase project never reaches its 7-day inactivity pause."""
     try:
+        if not db.enabled():      # DB was down at startup (e.g. Supabase paused, then restored)
+            await db.init()
         hands = await db.ping()
     except Exception as e:
         return JSONResponse({"ok": False, "error": repr(e)}, status_code=503)
     if hands is None:
-        return JSONResponse({"ok": False, "error": "db not connected"}, status_code=503)
+        return JSONResponse({"ok": False, "error": db.status()["error"] or "db not connected"},
+                            status_code=503)
     return {"ok": True, "hands": hands, "version": APP_VERSION}
 
 
