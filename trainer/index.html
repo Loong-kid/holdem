@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>레인지 트레이너</title>
+  <link rel="stylesheet" href="style.css?v=c2ee2c26e8ce">
+</head>
+<body>
+
+<!-- ===== 홈 ===== -->
+<div id="home" class="overlay">
+  <div class="home-box">
+    <h1>🂡 레인지 트레이너</h1>
+    <p class="subtitle">토너먼트 프리플랍 레인지를 문제로 외우기</p>
+
+    <div class="home-stats" id="home-stats"></div>
+
+    <div id="stage-list"></div>
+
+    <div class="mastery" id="mastery"></div>
+
+    <div class="home-foot">
+      <a class="small site-link hidden" href="/">← 홀덤 사이트</a>
+      <button class="small" id="settings-open">⚙ 설정</button>
+      <button class="small" id="library-open">전체 차트 177개</button>
+      <span class="hint">단축키: F 폴드 · C 콜 · R 레이즈 · A 올인 · L 림프 · Space 다음</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 설정 ===== -->
+<div id="settings" class="overlay hidden">
+  <div class="home-box narrow">
+    <h2>설정</h2>
+    <label class="field">앤티
+      <select id="ante">
+        <option value="none">없음</option>
+        <option value="bb">BB 앤티 (BB가 1bb)</option>
+        <option value="all">전원 앤티 (각 0.125bb)</option>
+      </select>
+    </label>
+    <p class="hint">지금 단계(오픈·푸시)는 정답이 차트로 정해져서 팟 표시에만 반영돼요. EV로 채점하는 단계(리잼)부터 계산에 들어가요.</p>
+    <label class="check-row"><input type="checkbox" id="sound"> 효과음</label>
+    <div class="row-btns">
+      <button class="small danger" id="reset">기록 초기화</button>
+      <button class="small accent" id="settings-close">닫기</button>
+    </div>
+  </div>
+</div>
+
+<div id="library" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="library-title">
+  <div class="home-box">
+    <div class="stage-head"><h2 id="library-title">전체 차트</h2><button class="small" id="library-close">닫기</button></div>
+    <label class="field">상황 검색<input id="library-search" type="search" placeholder="헤즈업, SB, 리잼…"></label>
+    <label class="field">차트 <select id="library-spot"></select></label>
+    <p class="context-note" id="library-note"></p>
+    <div class="library-controls">
+      <label class="field">유효스택 <select id="library-stack"></select></label>
+      <label class="field">상대 오픈 크기 <select id="library-size"></select></label>
+    </div>
+    <div class="mini" id="library-grid"></div>
+    <p class="hint">칸을 누르면 원본 범례와 대응 계획을 볼 수 있어요. 줄무늬는 혼합 전략, 어두운 빈 칸은 현재 조건에 기록 없음.</p>
+    <div id="library-detail" class="why" aria-live="polite"></div>
+  </div>
+</div>
+
+<!-- ===== 게임 ===== -->
+<header class="topbar">
+  <div class="tb-left">
+    <a class="small site-link hidden" href="/">홀덤</a>
+    <button class="small" id="home-btn">← 홈</button>
+    <span id="stage-label" class="gold"></span>
+    <button class="small" id="play-library-open">차트</button>
+  </div>
+  <div class="tb-stats">
+    <span>점수 <b id="score">0</b></span>
+    <span>연속 <b id="streak">0</b></span>
+    <span>정확도 <b id="acc">-</b></span>
+  </div>
+</header>
+
+<main class="play">
+  <section class="table-wrap">
+    <div class="table" id="table">
+      <div id="seats"></div>
+      <div class="center">
+        <div class="pot" id="pot"></div>
+        <div class="status" id="status"></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="q-title" id="q-title"></div>
+    <div class="q-prompt" id="q-prompt"></div>
+    <div class="feedback hidden" id="feedback">
+      <div class="verdict" id="verdict"></div>
+      <div class="answer" id="answer"></div>
+      <div class="evbox hidden" id="evbox"></div>
+      <div class="why" id="why"></div>
+      <div class="mini-wrap">
+        <div class="mini-head" id="mini-head"></div>
+        <div class="mini" id="mini"></div>
+        <div class="mini-legend" id="mini-legend"></div>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<footer class="action-bar" id="actions"></footer>
+
+<script src="lib/ranges.js?v=c2ee2c26e8ce"></script>
+<script src="data/ranges.js?v=c2ee2c26e8ce"></script>
+<script src="data/equity.js?v=c2ee2c26e8ce"></script>
+<script src="ev.js?v=c2ee2c26e8ce"></script>
+<script src="core.js?v=c2ee2c26e8ce"></script>
+<script src="app.js?v=c2ee2c26e8ce"></script>
+<script src="library.js?v=c2ee2c26e8ce"></script>
+</body>
+</html>

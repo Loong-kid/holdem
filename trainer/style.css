@@ -1,0 +1,301 @@
+/* 홀덤 사이트(Holdem/static/style.css)의 펠트 테이블·카드·명판·버튼 디자인을 그대로 가져옴 */
+:root {
+  --felt: #2c7a4b;
+  --felt-dark: #1f5836;
+  --gold: #e8c468;
+  --ink: #1a1a1a;
+  --panel: #1c3326;
+  --panel-dark: #122318;
+  --line: #3c5c48;
+  --muted: #9fbfa9;
+  /* 행동 색 — 홀덤 액션 버튼과 같은 계열 */
+  --a-fold: #a23b3b;
+  --a-check: #3b6ea2;
+  --a-call: #3b8a5a;
+  --a-limp: #3b6ea2;
+  --a-raise: #c9952f;
+  --a-jam: #d4572a;
+  --a-other: #6b7f73;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+  background: #14241b;
+  color: #f0f0f0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.hidden { display: none !important; }
+.gold { color: var(--gold); font-weight: 700; }
+
+/* ---------- 공용 버튼 ---------- */
+button { font-family: inherit; }
+button.small {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line);
+  background: transparent; color: #ccc; cursor: pointer; font-size: 13px;
+}
+button.small:hover { background: #1c3326; }
+a.small { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); color: var(--gold); text-decoration: none; font-size: 13px; white-space: nowrap; }
+a.small:hover { background: #244232; }
+button.small.accent { background: var(--gold); color: var(--ink); border-color: var(--gold); font-weight: 700; }
+button.small.danger { color: #ff9b9b; border-color: #6a3434; }
+
+/* ---------- 홈 / 설정 오버레이 ---------- */
+.overlay {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  background: radial-gradient(circle at center, #234c36, #0e1c14);
+  overflow-y: auto;
+}
+.home-box {
+  background: var(--panel);
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  padding: 26px 30px;
+  width: min(620px, 100%);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  margin: auto;
+}
+.home-box.narrow { width: min(400px, 100%); }
+.home-box h1 { margin: 0 0 4px; text-align: center; color: var(--gold); }
+.home-box h2 { margin: 0 0 16px; color: var(--gold); }
+.subtitle { margin: 0 0 18px; text-align: center; color: var(--muted); font-size: 14px; }
+.hint { font-size: 12px; color: #88a596; }
+
+.home-stats { display: flex; justify-content: center; gap: 22px; margin-bottom: 18px; font-size: 13px; color: #c8dcd0; }
+.home-stats b { display: block; color: var(--gold); font-size: 20px; text-align: center; }
+
+.stage {
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel-dark); padding: 14px 16px; margin-bottom: 12px;
+}
+.stage.locked { opacity: 0.55; }
+.stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.stage-name { font-size: 17px; font-weight: 800; }
+.stage-prog { font-size: 12px; color: var(--muted); }
+.stage-desc { font-size: 13px; color: #c8dcd0; margin: 4px 0 10px; }
+.stage-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.chip {
+  padding: 7px 13px; border-radius: 8px; border: 1px solid var(--line);
+  background: #1c3326; color: var(--gold); font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.chip:hover { background: #244232; }
+.chip:disabled { cursor: not-allowed; color: #6d8577; }
+.lock-note { font-size: 12px; color: #ffcf7a; }
+
+/* 스팟별 숙련도 지도 */
+.mastery { margin-top: 6px; overflow-x: auto; }
+.mastery table { border-collapse: separate; border-spacing: 3px; margin: 0 auto; font-size: 11px; }
+.mastery th { color: var(--muted); font-weight: 600; padding: 0 4px; }
+.mastery td {
+  width: 50px; height: 34px; text-align: center; border-radius: 5px; line-height: 1.1;
+  background: #1a2c21; color: #d8e8de; font-weight: 700;
+}
+.mastery td small { display: block; font-size: 9px; font-weight: 500; opacity: 0.75; }
+.mastery caption { color: #c8dcd0; font-size: 12px; margin-bottom: 4px; }
+
+.field { display: block; font-size: 13px; color: #c8dcd0; margin-bottom: 8px; }
+.field select, .field input {
+  display: block; width: 100%; margin-top: 4px; padding: 9px;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--panel-dark); color: #fff; font-size: 14px;
+}
+.context-note { font-size: 12px; color: #ffcf7a; line-height: 1.65; margin-top: 8px; }
+.library-controls { display: flex; gap: 12px; }
+.library-controls .field { flex: 1; min-width: 0; }
+#library-grid { width: 100%; margin-top: 12px; }
+#library-grid button { min-width: 0; padding: 5px 0; border: 0; font-family: inherit; font-size: 11px; color: #fff; cursor: pointer; border-radius: 2px; }
+#library-grid button.me { outline: 2px solid white; outline-offset: -2px; }
+#library-grid button.unknown { opacity: 0.35; }
+#library-detail { min-height: 70px; }
+#library { z-index: 20; }
+.check-row { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #c8dcd0; margin: 14px 0; cursor: pointer; }
+.row-btns { display: flex; justify-content: space-between; margin-top: 16px; }
+.home-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+/* ---------- 상단 바 ---------- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 16px; background: #0e1c14; border-bottom: 1px solid #2c4a38; font-size: 14px;
+  flex-wrap: wrap;
+}
+.tb-left { display: flex; align-items: center; gap: 12px; }
+.tb-stats { display: flex; gap: 18px; color: #c8dcd0; }
+.tb-stats b { color: var(--gold); font-size: 16px; }
+.tb-stats b.bump { animation: bump 0.35s ease; }
+@keyframes bump { 40% { transform: scale(1.35); } }
+
+/* ---------- 테이블 ---------- */
+.play { flex: 1; display: flex; gap: 18px; padding: 14px 18px 0; align-items: flex-start; justify-content: center; }
+.table-wrap { flex: 1; max-width: 900px; padding-bottom: 70px; }
+.table {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 880 / 480;
+  background: radial-gradient(ellipse at center, var(--felt), var(--felt-dark));
+  border: 14px solid #5a3a22;
+  border-radius: 240px;
+  box-shadow: inset 0 0 60px rgba(0,0,0,0.4), 0 14px 40px rgba(0,0,0,0.5);
+}
+#seats { position: absolute; inset: 0; }
+.center {
+  position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+  text-align: center; z-index: 3; width: 60%;
+}
+.pot { font-size: 22px; color: var(--gold); font-weight: 800; }
+.status { margin-top: 6px; font-size: 14px; color: #d8e8de; min-height: 18px; }
+
+.seat {
+  position: absolute; width: 104px; transform: translate(-50%, -50%);
+  text-align: center; z-index: 2;
+}
+.seat.folded { opacity: 0.38; }
+.nameplate {
+  background: var(--panel-dark); border: 1px solid var(--line); border-radius: 10px;
+  padding: 4px 6px; font-size: 12px;
+}
+.nameplate .pchips { color: var(--gold); font-size: 15px; font-weight: 700; }
+.pos-chip {
+  display: inline-block; background: #3a5a98; color: #fff;
+  font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px;
+}
+.dealer-btn {
+  display: inline-block; width: 18px; height: 18px; background: #fff; color: var(--ink);
+  border-radius: 50%; font-size: 10px; font-weight: 800; line-height: 18px; margin-left: 3px;
+}
+.seat .paction { font-size: 11px; color: var(--muted); min-height: 14px; margin-top: 2px; }
+.seat .pbet {
+  display: inline-block; margin-top: 3px; font-size: 13px; font-weight: 700; color: #ffe9a8;
+  background: #2e2510; border: 1px solid var(--gold); border-radius: 10px; padding: 0 8px;
+}
+.seat .backs { display: flex; gap: 2px; justify-content: center; margin-bottom: 3px; }
+.seat.hero { width: 200px; z-index: 4; }
+.seat.hero .nameplate { background: #1c3a28; border-color: var(--gold); box-shadow: 0 0 14px rgba(232,196,104,0.55); }
+.seat.villain .nameplate { border-color: #ff8a5a; box-shadow: 0 0 12px rgba(255,138,90,0.6); }
+.hero-cards { display: flex; gap: 6px; justify-content: center; margin-bottom: 5px; }
+
+/* ---------- 카드 (홀덤과 동일) ---------- */
+.card {
+  position: relative; width: 84px; height: 118px; border-radius: 9px;
+  background: #fdfdfd; color: var(--ink); font-weight: 800;
+  box-shadow: 0 2px 7px rgba(0,0,0,0.45); overflow: hidden;
+}
+.card .corner-top, .card .corner-bottom {
+  position: absolute; display: flex; flex-direction: column; align-items: center; line-height: 0.95;
+}
+.card .corner-top { top: 5px; left: 6px; }
+.card .corner-bottom { bottom: 5px; right: 6px; transform: rotate(180deg); }
+.card .r { font-size: 26px; }
+.card .s { font-size: 19px; }
+.card .pip { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 48px; opacity: 0.95; }
+.card.red { color: #c81e2c; }
+.card.deal { animation: deal 0.25s ease-out; }
+@keyframes deal { from { transform: translateY(-30px) rotate(-6deg); opacity: 0; } }
+.card.back.tiny {
+  width: 18px; height: 25px; border-radius: 3px; border: 1px solid #fff;
+  background: repeating-linear-gradient(45deg, #2a4d8f, #2a4d8f 3px, #1d376a 3px, #1d376a 6px);
+  box-shadow: none;
+}
+
+/* ---------- 문제 / 해설 패널 ---------- */
+.side {
+  width: 360px; flex: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 14px 16px;
+}
+.q-title { font-size: 12px; color: var(--muted); }
+.q-prompt { font-size: 17px; font-weight: 700; margin: 4px 0 2px; line-height: 1.4; }
+.q-prompt .hl { color: var(--gold); }
+.feedback { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.verdict { font-size: 22px; font-weight: 800; }
+.verdict .pts { font-size: 16px; margin-left: 6px; }
+.verdict.correct { color: #7CFC00; }
+.verdict.mixed, .verdict.alt { color: #ffd76a; }
+.verdict.wrong { color: #ff6a6a; }
+.answer { font-size: 15px; margin-top: 4px; }
+.answer .tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: #2b4436; color: #c8dcd0; margin-left: 4px; }
+.why { margin-top: 8px; font-size: 13px; color: #c8dcd0; line-height: 1.5; }
+.why .label { font-family: Consolas, monospace; color: #ffe9a8; font-size: 12px; }
+.why ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* 칩 EV 비교 */
+.evbox { margin-top: 8px; background: var(--panel-dark); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 13px; }
+.evbox .ev-row { display: flex; justify-content: space-between; padding: 2px 0; }
+.evbox .ev-row.best b { color: #7CFC00; }
+.evbox .ev-row.mine { text-decoration: underline; text-underline-offset: 3px; }
+.evbox .ev-val { font-family: Consolas, monospace; font-weight: 700; }
+.evbox .ev-val.neg { color: #ff8a8a; }
+.evbox .ev-detail { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.evbox .ev-warn { margin-top: 4px; color: #ffd76a; font-size: 12px; }
+
+/* 13x13 미니 차트 */
+.mini-wrap { margin-top: 10px; }
+.mini-head { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.mini { display: grid; grid-template-columns: repeat(13, 1fr); gap: 1px; background: #0e1c14; border-radius: 4px; overflow: hidden; }
+.mini div {
+  aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; color: rgba(255,255,255,0.8); background: #22382b; cursor: default;
+}
+.mini .fold { background: #22382b; color: rgba(255,255,255,0.35); }
+.mini .raise { background: var(--a-raise); color: var(--ink); }
+.mini .none { background: #0f1a13; color: rgba(255,255,255,0.14); }
+.mini .fold2 { background: #7a3434; }
+.mini .jam { background: var(--a-jam); }
+.mini .call { background: var(--a-call); }
+.mini .limp, .mini .check { background: var(--a-limp); }
+.mini .other { background: #3d4f45; }
+.mini .mix { background: repeating-linear-gradient(45deg, var(--a-raise), var(--a-raise) 3px, var(--a-jam) 3px, var(--a-jam) 6px); }
+.mini .unknown { background: repeating-linear-gradient(45deg, #1a2a20, #1a2a20 2px, #2a3a30 2px, #2a3a30 4px); }
+.mini .me { outline: 2px solid #fff; outline-offset: -2px; font-weight: 800; color: #fff; z-index: 1; }
+.mini-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; font-size: 11px; color: #c8dcd0; }
+.mini-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+
+/* ---------- 액션 바 (홀덤 버튼 색) ---------- */
+.action-bar {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;
+  padding: 14px; background: linear-gradient(transparent, #0e1c14 35%);
+}
+.act {
+  min-width: 120px; padding: 13px 22px; border: none; border-radius: 9px;
+  font-weight: 700; font-size: 16px; cursor: pointer; color: #fff; white-space: nowrap;
+}
+.act small { display: block; font-size: 11px; font-weight: 600; opacity: 0.75; }
+.act:hover { filter: brightness(1.1); }
+.act.fold { background: var(--a-fold); }
+.act.check, .act.limp { background: var(--a-check); }
+.act.call { background: var(--a-call); }
+.act.raise { background: var(--a-raise); color: var(--ink); }
+.act.jam { background: var(--a-jam); }
+.act.other { background: var(--a-other); }
+.act.next { background: var(--gold); color: var(--ink); min-width: 200px; }
+.act.picked { outline: 3px solid #fff; }
+
+/* ---------- 좁은 화면 (폰) ---------- */
+@media (max-width: 900px) {
+  .play { flex-direction: column; align-items: stretch; padding: 10px 10px 0; }
+  .side { width: auto; }
+  .table-wrap { padding-bottom: 60px; }
+}
+@media (max-width: 600px) {
+  #library-grid button { font-size: 9px; }
+  .table { border-width: 9px; border-radius: 140px; aspect-ratio: 10 / 9; }
+  .seat { width: 74px; }
+  .seat.hero { width: 150px; }
+  .nameplate { font-size: 10px; padding: 3px 4px; }
+  .nameplate .pchips { font-size: 12px; }
+  .card { width: 58px; height: 82px; }
+  .card .r { font-size: 19px; }
+  .card .s { font-size: 14px; }
+  .card .pip { font-size: 32px; opacity: 0.16; }
+  .pot { font-size: 17px; }
+  .act { min-width: 0; flex: 1; padding: 11px 4px; font-size: 14px; }
+  .act.next { min-width: 0; flex: 1.4; }
+  .tb-stats { gap: 10px; font-size: 12px; }
+  .home-box { padding: 20px 16px; }
+}

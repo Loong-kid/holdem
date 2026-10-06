@@ -33,6 +33,7 @@ from poker.game import Game, summarize_hand
 
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
+TRAINER_DIR = BASE_DIR / "trainer"
 
 # GTO 피드백(프리플랍 RFI) — chart_db.json이 있으면 활성. 없으면 /gto가 비활성 응답.
 CHART_DB = BASE_DIR / "chart_db.json"
@@ -57,7 +58,7 @@ RUNOUT_DELAY = 1.3         # seconds between board reveals on an all-in run-out
 DEFAULT_TIMEOUT = 30       # seconds per action
 MIN_TIMEOUT, MAX_TIMEOUT = 20, 60
 DISCONNECT_GRACE = 120     # seconds a dropped player keeps cards; then -> sit-out (seat kept)
-APP_VERSION = "v35-keepalive"   # bump on deploy so we can confirm what's live
+APP_VERSION = "v36-range-trainer"   # bump on deploy so we can confirm what's live
 
 # ---- Tournament defaults --------------------------------------------------
 # A blind level is just (small_blind, big_blind). The clock auto-advances to the
@@ -524,7 +525,8 @@ def client_ip(ws: WebSocket) -> str:
 
 @app.get("/")
 async def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html",
+                        headers={"Cache-Control": "no-cache, must-revalidate"})
 
 
 @app.get("/stats")
@@ -944,6 +946,16 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 # Serve the rest of the static files (app.js, style.css) under /static.
+class TrainerFiles(StaticFiles):
+    """Standalone trainer assets; revalidate so old tabs see updated bundles."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
+app.mount("/trainer", TrainerFiles(directory=TRAINER_DIR, html=True), name="trainer")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 

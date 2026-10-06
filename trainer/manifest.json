@@ -1,0 +1,14 @@
+{
+  "version": "c2ee2c26e8ce",
+  "files": {
+    "index.html": "8720e2366f69564b1730e2277c1cec81321bf445b9c235ab4f1c6df3aa10aae0",
+    "style.css": "076d530298ebe9e645748d1f538689193c94c512cf3c6bddbb23f118fbee36bd",
+    "app.js": "936637cd85db7beb854a6ee26d04e7ad784e70275e17f6e0380d6b6c80b77769",
+    "core.js": "d7716e03570058b00cf2f79ef946fc979fadc04ecf7cb5de8afd8f85907f99be",
+    "ev.js": "6c3c5319c232a96f016f4e5e913e4734e5261d31dee0e03e3b5483bb433dc938",
+    "library.js": "673debc41fd61a9e9ea183350e6386317206e3d44cb74ba6c66222f58c735e8c",
+    "lib/ranges.js": "7472eb163f3c48266e0a4da726f106ba65019438faed12a717c8e0b9e540e482",
+    "data/ranges.js": "efa994ff370086a5360b7bdd4b1d720ac3d59e7a82e8a2d5939ea5745119f291",
+    "data/equity.js": "27cded4d2979e9e5de4e56a04de1ae43e9a48d3f06407194df0a76209608d1ef"
+  }
+}

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Holdem</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v=36" />
 </head>
 <body>
   <!-- Join screen -->
@@ -19,6 +19,7 @@
         <input id="room-input" value="main" maxlength="24" />
       </label>
       <button id="join-btn">테이블 입장</button>
+      <a id="join-trainer-link" class="trainer-entry" href="/trainer/" target="_blank" rel="noopener">♠ 레인지 트레이너</a>
       <p class="hint">같은 방 이름으로 들어오면 같은 테이블에서 같이 칩니다.</p>
     </div>
   </div>
@@ -39,6 +40,7 @@
       <button id="stand-btn" class="small seated-only">🚪 일어서기</button>
       <button id="game-toggle-btn" class="small host-only">▶ 게임 시작</button>
       <button id="replay-btn" class="small">🎬 리플레이</button>
+      <a id="trainer-link" class="small trainer-link" href="/trainer/" target="_blank" rel="noopener">♠ 레인지 연습</a>
       <button id="board-btn" class="small">🏆 기록</button>
       <button id="settings-btn" class="small">⚙ 설정</button>
       <button id="log-toggle" class="small mobile-only">📜</button>
@@ -251,6 +253,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=36"></script>
 </body>
 </html>
