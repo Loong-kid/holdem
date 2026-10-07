@@ -86,6 +86,30 @@ $("library-search").oninput = searchLibrary;
 $("library-spot").onchange = configureLibrary;
 $("library-stack").onchange = renderLibrary;
 $("library-size").onchange = renderLibrary;
+// 각 선택 항목 위에서 휠을 돌리면 해당 항목만 한 칸씩 변경한다.
+function bindLibraryWheel(id) {
+  const select = $(id);
+  let pending = 0, lastWheel = 0;
+  select.closest("label").addEventListener("wheel", (e) => {
+    if (e.ctrlKey || e.metaKey || Math.abs(e.deltaX) > Math.abs(e.deltaY) || !e.deltaY) return;
+    if (select.disabled || select.options.length < 2) return;
+    e.preventDefault();
+    const delta = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
+    const now = performance.now();
+    if (now - lastWheel > 180 || Math.sign(pending) !== Math.sign(delta)) pending = 0;
+    lastWheel = now;
+    pending += delta;
+    if (Math.abs(pending) < 40) return; // 트랙패드의 작은 움직임은 모아서 처리
+    const next = Math.max(0, Math.min(select.options.length - 1, select.selectedIndex + Math.sign(pending)));
+    pending = 0;
+    if (next === select.selectedIndex) return;
+    select.selectedIndex = next;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }, { passive: false });
+}
+bindLibraryWheel("library-spot");
+bindLibraryWheel("library-stack");
+
 document.addEventListener("keydown", (e) => {
   if ($("library").classList.contains("hidden")) return;
   if (e.key === "Escape") { e.preventDefault(); closeLibrary(); }
