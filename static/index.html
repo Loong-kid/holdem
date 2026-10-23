@@ -5,47 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Holdem</title>
   <link rel="stylesheet" href="/static/style.css?v=36" />
+  <link rel="stylesheet" href="/static/theme.css?v=39" />
 </head>
 <body>
   <!-- Join screen -->
   <div id="join-screen" class="overlay">
     <div class="join-box">
-      <h1>♠ Holdem ♥</h1>
-      <p class="subtitle">웹 멀티플레이 텍사스 홀덤</p>
+      <div class="join-emblem" aria-hidden="true">♠</div>
+      <h1>Holdem</h1>
+      <p class="subtitle">친구들과 같은 테이블에서.</p>
       <label>닉네임
-        <input id="name-input" maxlength="16" placeholder="이름" />
+        <input id="name-input" maxlength="16" placeholder="테이블에서 사용할 이름" />
       </label>
       <label>방 이름
         <input id="room-input" value="main" maxlength="24" />
       </label>
       <button id="join-btn">테이블 입장</button>
       <a id="join-trainer-link" class="trainer-entry" href="/trainer/" target="_blank" rel="noopener">♠ 레인지 트레이너</a>
-      <p class="hint">같은 방 이름으로 들어오면 같은 테이블에서 같이 칩니다.</p>
+      <p class="hint">친구에게 방 이름을 알려주세요.<br>같은 이름으로 입장하면 함께 플레이할 수 있어요.</p>
     </div>
   </div>
 
   <!-- Game screen -->
   <div id="game-screen" class="hidden">
     <header class="topbar">
-      <span id="room-label"></span>
+      <div class="table-identity"><span class="brand-mark" aria-hidden="true">♠</span><span id="room-label"></span></div>
+      <div class="table-meta">
       <span id="blinds-label"></span>
       <span id="mode-label"></span>
       <span id="tourney-label" class="hidden"></span>
       <span id="phase-label"></span>
       <span id="spectator-label" class="hidden"></span>
-      <span class="topbar-spacer"></span>
+      </div>
+      <nav class="table-nav" aria-label="테이블 메뉴">
       <button id="take-seat-btn" class="small accent spectator-only">🪑 테이블에 앉기</button>
       <button id="rebuy-btn" class="small accent hidden seated-only">💰 리바이</button>
       <button id="sit-btn" class="small seated-only">자리비움</button>
-      <button id="stand-btn" class="small seated-only">🚪 일어서기</button>
+      <button id="stand-btn" class="small seated-only">일어서기</button>
       <button id="game-toggle-btn" class="small host-only">▶ 게임 시작</button>
-      <button id="replay-btn" class="small">🎬 리플레이</button>
+      <button id="replay-btn" class="small">리플레이</button>
       <a id="trainer-link" class="small trainer-link" href="/trainer/" target="_blank" rel="noopener">♠ 레인지 연습</a>
-      <button id="board-btn" class="small">🏆 기록</button>
-      <button id="settings-btn" class="small">⚙ 설정</button>
-      <button id="log-toggle" class="small mobile-only">📜</button>
-      <button id="chat-toggle" class="small mobile-only">💬</button>
+      <button id="board-btn" class="small">기록</button>
+      <button id="settings-btn" class="small">설정</button>
       <button id="leave-btn" class="small">나가기</button>
+      </nav>
     </header>
 
     <div class="table-wrap">
@@ -61,12 +64,15 @@
       </div>
     </div>
 
+    <section class="action-dock" aria-label="내 액션">
     <div id="hand-rank" class="hand-rank hidden"></div>
 
     <div id="action-bar" class="action-bar hidden">
+      <div class="primary-actions">
       <button id="fold-btn" class="act fold">폴드</button>
       <button id="check-btn" class="act check">체크</button>
       <button id="call-btn" class="act call">콜</button>
+      </div>
       <div class="raise-group">
         <div class="bet-presets">
           <button type="button" class="bet-preset" data-frac="0.25">¼</button>
@@ -98,14 +104,21 @@
       <button id="deal-btn">딜 시작</button>
       <span class="waiting-hint">2명 이상 모이면 딜을 시작하세요.</span>
     </div>
+    </section>
+    <div class="mobile-panels">
+      <button id="log-toggle" class="small mobile-only" aria-controls="log" aria-expanded="false">핸드 로그</button>
+      <button id="chat-toggle" class="small mobile-only" aria-controls="chat" aria-expanded="false">채팅</button>
+    </div>
 
     <div id="log" class="panel log-panel">
       <div class="panel-handle" data-target="log"><span class="grip"></span></div>
+      <div class="panel-heading">핸드 로그</div>
       <div id="log-body" class="panel-body log-body"></div>
     </div>
 
     <div id="chat" class="panel chat-panel">
       <div class="panel-handle" data-target="chat"><span class="grip"></span></div>
+      <div class="panel-heading">테이블 채팅</div>
       <div id="chat-messages" class="panel-body chat-messages"></div>
       <form id="chat-form" class="chat-form">
         <input id="chat-input" maxlength="200" placeholder="채팅 입력..." autocomplete="off" />
@@ -253,6 +266,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=39"></script>
 </body>
 </html>

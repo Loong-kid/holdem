@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Holdem · 디자인 비교</title>
+  <link rel="stylesheet" href="../static/style.css">
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body class="proposed">
+  <aside class="preview-tools" aria-label="디자인 미리보기 설정">
+    <div class="preview-title"><strong>디자인 미리보기</strong><span>예시 핸드 · 서버 연결 없음</span></div>
+    <div class="preview-options">
+      <div class="segmented" role="group" aria-label="디자인 선택">
+        <button data-theme="original" aria-pressed="false">현재 스타일</button>
+        <button data-theme="proposed" aria-pressed="true">개선안</button>
+      </div>
+      <div class="segmented" role="group" aria-label="미리보기 화면">
+        <button data-screen="game" aria-pressed="true">게임</button>
+        <button data-screen="join" aria-pressed="false">입장</button>
+      </div>
+    </div>
+  </aside>
+
+  <main id="game-screen">
+    <header class="topbar">
+      <div class="table-identity"><span class="brand-mark" aria-hidden="true">♠</span><span id="room-label">금요일 홀덤</span><span class="room-detail">친구들과 함께하는 테이블</span></div>
+      <div class="table-meta"><span id="blinds-label">블라인드 50 / 100</span><span class="mode-label">노리밋 홀덤</span><span id="phase-label">플랍</span></div>
+      <nav class="table-nav" aria-label="테이블 메뉴">
+        <button class="small" data-dialog="자리비움">자리비움</button>
+        <button class="small" data-dialog="리플레이">리플레이</button>
+        <button class="small trainer-link" data-dialog="레인지 연습">♠ 레인지 연습</button>
+        <button class="small" data-dialog="기록">기록</button>
+        <button class="small" data-dialog="설정">설정</button>
+        <button class="small" data-screen="join">나가기</button>
+      </nav>
+    </header>
+
+    <section class="table-wrap" aria-label="6인 홀덤 테이블">
+      <div class="table">
+        <div class="felt-signature" aria-hidden="true">♠<span>Holdem</span></div>
+        <div class="board">
+          <div class="street-caption">플랍</div>
+          <div id="community" class="community"></div>
+          <div class="pot"><span class="pot-caption">전체 팟</span><span id="pot-value">1,500</span></div>
+          <div class="status">내 차례</div>
+          <div class="turn-timer">남은 시간 <strong>24초</strong></div>
+          <div class="turn-bar"><div class="turn-bar-fill"></div></div>
+        </div>
+        <div id="seats"></div>
+      </div>
+    </section>
+
+    <section class="action-dock" aria-label="내 액션">
+      <div class="hand-rank"><span class="hand-caption">내 패</span><b>J 원페어</b><span class="hand-detail">콜 금액 300</span></div>
+      <div class="action-bar">
+        <div class="primary-actions"><button class="act fold" data-action="폴드">폴드</button><button class="act call" data-action="콜">콜 <strong>300</strong></button></div>
+        <div class="raise-group">
+          <div class="bet-presets"><button class="bet-preset" data-amount="600">½ 팟</button><button class="bet-preset" data-amount="900">¾ 팟</button><button class="bet-preset" data-amount="1500">팟</button><button class="bet-preset" data-amount="9800">올인</button></div>
+          <div class="raise-controls"><input id="raise-slider" type="range" min="600" max="9800" step="100" value="900" aria-label="레이즈 금액"><input id="raise-amount" class="raise-input" type="number" min="600" max="9800" step="100" value="900" aria-label="레이즈 금액 직접 입력"><button class="act raise" data-action="레이즈">레이즈</button></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel log-panel" aria-label="핸드 로그"><div class="panel-heading">핸드 로그 <span>#28</span></div><div class="panel-body log-body"><div>플랍 <b>J♠ 7♥ 2♣</b></div><div>도윤 체크</div><div>지우 베팅 <b>300</b></div><div class="log-current">내 차례 · 콜 300</div></div></section>
+    <section class="panel chat-panel" aria-label="테이블 채팅"><div class="panel-heading">테이블 채팅 <span>6명</span></div><div id="chat-messages" class="panel-body chat-messages"><div><span class="cname">민준</span> 오늘은 오래 가보자</div><div><span class="cname">지우</span> 좋아 ㅋㅋ</div></div><form id="chat-form" class="chat-form"><input id="chat-input" maxlength="100" aria-label="채팅 메시지" placeholder="메시지 입력"><button type="submit">전송</button></form></section>
+    <div class="mobile-panels"><button class="small" data-panel="log">핸드 로그</button><button class="small" data-panel="chat">채팅</button></div>
+  </main>
+
+  <main id="join-screen" class="overlay hidden">
+    <form class="join-box" id="join-form">
+      <div class="join-emblem" aria-hidden="true">♠</div>
+      <h1>Holdem</h1>
+      <p class="subtitle">친구들과 같은 테이블에서.</p>
+      <label>닉네임<input id="name-input" maxlength="16" placeholder="테이블에서 사용할 이름" value="나" required></label>
+      <label>방 이름<input id="room-input" value="금요일 홀덤" maxlength="24" required></label>
+      <button id="join-btn" type="submit">테이블 입장</button>
+      <button class="trainer-entry" type="button" data-dialog="레인지 연습">♠ 레인지 트레이너</button>
+      <p class="hint">친구에게 방 이름을 알려주세요.<br>같은 이름으로 입장하면 함께 플레이할 수 있어요.</p>
+    </form>
+  </main>
+
+  <dialog id="preview-dialog"><form method="dialog"><div class="dialog-head"><h2 id="dialog-title">미리보기</h2><button aria-label="닫기">✕</button></div><p id="dialog-copy"></p><button class="dialog-confirm">확인</button></form></dialog>
+  <output id="feedback" aria-live="polite"></output>
+  <script src="preview.js"></script>
+</body>
+</html>

@@ -234,7 +234,8 @@ function enterGame(room, name) {
   joinedOnce = true;
   localStorage.setItem("lastRoom", myRoom);
   if (myName) localStorage.setItem("lastName", myName);
-  $("room-label").textContent = "방: " + myRoom;
+  $("room-label").textContent = myRoom;
+  $("room-label").title = myRoom;
   $("join-screen").classList.add("hidden");
   $("game-screen").classList.remove("hidden");
 }
@@ -487,6 +488,11 @@ function toggleDrawer(which) {
   const other = which === "chat" ? "log" : "chat";
   document.body.classList.remove("show-" + other);
   document.body.classList.toggle("show-" + which);
+  syncDrawerButtons();
+}
+function syncDrawerButtons() {
+  for (const which of ["log", "chat"])
+    $(which + "-toggle").setAttribute("aria-expanded", String(document.body.classList.contains("show-" + which)));
 }
 $("chat-toggle").onclick = () => toggleDrawer("chat");
 $("log-toggle").onclick = () => toggleDrawer("log");
@@ -498,7 +504,10 @@ $("log-toggle").onclick = () => toggleDrawer("log");
   let active = null, startY = 0, startH = 0;
   document.querySelectorAll(".panel-handle").forEach((h) => {
     h.addEventListener("click", () => {
-      if (isMobile()) document.body.classList.remove("show-" + h.dataset.target);
+      if (isMobile()) {
+        document.body.classList.remove("show-" + h.dataset.target);
+        syncDrawerButtons();
+      }
     });
     h.addEventListener("mousedown", (e) => {
       if (isMobile()) return;          // no drag-resize on phones
@@ -658,6 +667,8 @@ function renderBoards(container, boards) {
 // ---- Main render ----------------------------------------------------------
 function render() {
   if (!state) return;
+  document.body.classList.toggle("double-board", state.num_boards > 1);
+  document.body.classList.toggle("crowded-table", state.players.length >= 7);
   $("phase-label").textContent = state.phase;
   $("blinds-label").textContent = `블라인드 ${state.small_blind}/${state.big_blind}`;
 
@@ -724,7 +735,15 @@ function render() {
   // Community board(s) — one row for Hold'em/Omaha, two for Double Board Omaha.
   renderBoards($("community"), state.boards);
 
-  $("pot").textContent = state.pot > 0 ? `팟: ${state.pot}` : "";
+  $("pot").replaceChildren();
+  if (state.pot > 0) {
+    const caption = document.createElement("span");
+    caption.className = "pot-caption";
+    caption.textContent = "전체 팟";
+    const amount = document.createElement("span");
+    amount.textContent = state.pot.toLocaleString();
+    $("pot").append(caption, amount);
+  }
 
   // Winner banner at showdown / uncontested win.
   if (!state.hand_in_progress && state.num_boards > 1
@@ -785,8 +804,8 @@ function renderSeats() {
 
   // Tighter ellipse on phones so the left/right seats don't hang off-screen.
   const mob = window.innerWidth <= 600;
-  const rx = mob ? 47 : 56;
-  const ry = mob ? 45 : 50;
+  const rx = 48;
+  const ry = mob ? 43 : 46;
   ordered.forEach((p, i) => {
     // Place seat i around an ellipse; i=0 is bottom-center (me). Seats go
     // CLOCKWISE as the seat index increases (which is the action order), so the
@@ -857,6 +876,8 @@ function renderSeats() {
     seats.appendChild(seat);
   });
 }
+
+window.addEventListener("resize", () => { if (state) renderSeats(); });
 
 function renderControls() {
   const actionBar = $("action-bar");
@@ -932,7 +953,7 @@ function renderControls() {
 function renderSettings() {
   if (!state) return;
   $("db-status").innerHTML = state.db
-    ? '데이터 저장: <span class="ok">PostgreSQL 연결됨 ✅</span> (리플레이가 영구 저장됩니다)'
+    ? '데이터 저장: <span class="ok">D1 연결됨 ✅</span> (리플레이가 영구 저장됩니다)'
       + `<div class="ver">버전 ${state.version || "?"}</div>`
     : '데이터 저장: <span class="warn">메모리(임시) ⚠️</span> (서버 재시작 시 리플레이가 사라집니다)'
       + `<div class="ver">버전 ${state.version || "?"}</div>`;

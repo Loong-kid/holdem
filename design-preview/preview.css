@@ -1,0 +1,284 @@
+/* One proposal: quieter rail, legible stacks, clear actions. Production CSS is untouched. */
+:root {
+  --preview-bg: #e6eae7;
+  --preview-ink: #283d34;
+  --preview-muted: #58665f;
+  --preview-line: #bdc9c1;
+  --preview-selected: #284f40;
+  --preview-white: #fff;
+  --surface: #151d1b;
+  --surface-raised: #202c27;
+  --surface-inset: #101914;
+  --surface-hover: #30483c;
+  --line: #3c5045;
+  --text: #edf0e8;
+  --muted: #adbcb0;
+  --gold: #e8c468;
+  --gold-hover: #e9d3a7;
+  --felt: #2c7a4b;
+  --felt-dark: #1f5836;
+  --rail: #2d3a32;
+  --rail-edge: #627063;
+  --paper: #fffdf5;
+  --red: #b82e40;
+  --ink: #1a1a1a;
+  --call: #365e4c;
+  --fold: #302d2b;
+  --shadow: #0005;
+  --shadow-deep: #0008;
+  --felt-line: #94b59b45;
+  --signature: #afc9ad29;
+  --active-track: #9bbf91;
+  --focus: #e0d1a4;
+  --body-font: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  --number-font: 'Bahnschrift', 'Aptos', 'Malgun Gothic', sans-serif;
+  --display-font: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+}
+html { overflow-x: clip; }
+body { height: auto; min-height: 100svh; overflow-x: clip; overflow-y: auto; }
+button, input { font-family: inherit; }
+button { white-space: nowrap; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+button:active { transform: translateY(1px); }
+.preview-tools {
+  position: relative; z-index: 40; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 24px; background: var(--preview-bg); color: var(--preview-ink); font-family: var(--body-font);
+}
+.preview-title { display: flex; gap: 14px; align-items: center; font-size: 13px; }
+.preview-title span { color: var(--preview-muted); font-size: 11px; }
+.preview-options { display: flex; gap: 16px; }
+.segmented { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--preview-line); border-radius: 7px; }
+.segmented button { border: none; background: transparent; color: var(--preview-ink); font-size: 12px; padding: 7px 13px; border-radius: 4px; cursor: pointer; }
+.segmented button[aria-pressed="true"] { background: var(--preview-selected); color: var(--preview-white); }
+.segmented button:focus-visible { outline-color: var(--preview-selected); outline-offset: 2px; }
+#game-screen { min-height: calc(100svh - 63px); display: flex; flex-direction: column; }
+.topbar { flex-wrap: wrap; gap: 12px 20px; min-height: 66px; }
+.table-identity { display: flex; gap: 10px; align-items: center; }
+.brand-mark { font-size: 24px; color: var(--gold); }
+#room-label { font-weight: 700; white-space: nowrap; }
+.room-detail { display: none; }
+.table-meta { display: flex; gap: 14px; align-items: center; }
+.mode-label { font-size: 12px; color: var(--muted); }
+.table-nav { display: flex; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+.table-nav .small { min-height: 32px; }
+.table-wrap { min-height: 510px; flex: 1; height: auto; padding: 62px 80px 80px; }
+.table { flex: none; width: min(68vw, 940px); height: 450px; }
+.felt-signature, .street-caption, .pot-caption { display: none; }
+.seat { width: 135px; }
+.card { width: 78px; height: 108px; }
+.card.small { width: 54px; height: 76px; }
+.seat .player-cards { min-height: 76px; }
+.card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 18px; }
+.card.small .pip { font-size: 34px; }
+.board { top: 44%; }
+.primary-actions { display: flex; gap: 10px; align-items: stretch; }
+.action-dock { width: fit-content; max-width: 100%; margin: 0 auto 22px; position: relative; z-index: 5; }
+.action-bar { padding: 12px 18px; gap: 18px; }
+.hand-rank { padding-top: 12px; }
+.hand-caption { margin-right: 10px; color: var(--muted); font-size: 12px; }
+.hand-detail { color: var(--muted); font-size: 12px; margin-left: 16px; }
+.act { min-height: 48px; }
+.raise-controls { gap: 10px; }
+.raise-group { gap: 12px; }
+.panel { position: fixed; bottom: 20px; width: 210px; height: 163px; z-index: 7; }
+.log-panel { left: 24px; }
+.chat-panel { right: 24px; }
+.panel-heading { padding: 11px 12px 5px; font-size: 12px; font-weight: 600; }
+.panel-heading span { float: right; color: var(--muted); font-weight: 400; }
+.panel-body { line-height: 1.9; }
+.chat-form input { min-width: 0; width: 100%; }
+.chat-messages .cname { margin-right: 6px; }
+.mobile-panels { display: none; }
+#join-screen { position: relative; min-height: calc(100svh - 63px); padding: 40px 20px; }
+.join-emblem { text-align: center; font-size: 42px; color: var(--gold); margin-bottom: 8px; }
+.join-box h1 { font-family: var(--display-font); font-size: 40px; font-weight: 500; }
+.join-box .hint { line-height: 1.8; }
+.trainer-entry { cursor: pointer; }
+.join-box .trainer-entry { background: transparent; border: 1px solid var(--gold); color: var(--gold); }
+#preview-dialog { max-width: min(90vw, 420px); padding: 24px; color: var(--text); background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; font-family: var(--body-font); }
+#preview-dialog::backdrop { background: var(--shadow-deep); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.dialog-head h2 { font-size: 18px; margin: 0; }
+.dialog-head button { background: none; color: var(--text); border: none; padding: 8px; cursor: pointer; }
+#dialog-copy { color: var(--muted); line-height: 1.8; font-size: 14px; }
+.dialog-confirm { padding: 10px 22px; border: none; background: var(--gold); color: var(--ink); border-radius: 6px; cursor: pointer; }
+#feedback { display: none; position: fixed; z-index: 50; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--paper); color: var(--ink); padding: 14px 20px; box-shadow: 0 4px 24px var(--shadow); font-size: 13px; border-radius: 8px; width: max-content; max-width: calc(100% - 24px); text-align: center; }
+#feedback.visible { display: block; }
+
+/* Proposed visual layer. Same content and interactions as the comparison. */
+body.proposed { --gold: #dbc18a; --felt: #27664e; --felt-dark: #20513f; --ink: #24352c; background: var(--surface); color: var(--text); font-family: var(--body-font); }
+.proposed .topbar { background: var(--surface); border-bottom: 1px solid var(--line); padding: 16px 26px; }
+.proposed .brand-mark { color: var(--gold); font-size: 28px; margin-right: 2px; }
+.proposed #room-label { font-size: 16px; letter-spacing: -.4px; }
+.proposed #blinds-label { color: var(--muted); font-family: var(--number-font); font-size: 13px; }
+.proposed #phase-label { color: var(--gold); font-size: 12px; border-left: 1px solid var(--line); padding-left: 14px; }
+.proposed .small { color: var(--muted); border: 1px solid transparent; border-radius: 5px; font-size: 12px; }
+.proposed .small:hover { color: var(--text); background: var(--surface-raised); }
+.proposed .trainer-link { border-color: var(--line); color: var(--gold); margin: 0 5px; }
+.proposed .table { border: 12px solid var(--rail); outline: 1px solid var(--rail-edge); background: var(--felt-dark); box-shadow: inset 0 0 70px var(--shadow), 0 18px 38px var(--shadow); }
+.proposed .table::before { content: ''; position: absolute; inset: 14px; border: 1px solid var(--felt-line); border-radius: inherit; pointer-events: none; }
+.proposed .felt-signature { display: none; }
+.proposed .felt-signature span { font-family: var(--display-font); font-size: 25px; }
+.proposed .board { top: 46%; }
+.proposed .street-caption { display: block; font-size: 11px; color: var(--muted); margin-bottom: 10px; }
+.proposed .community { min-height: 0; }
+.proposed .card { background: var(--paper); box-shadow: 0 3px 5px var(--shadow); border-radius: 6px; color: var(--ink); }
+.proposed .card.red { color: var(--red); }
+.proposed .card .pip { opacity: .14; font-size: 52px; }
+.proposed .card.small .pip { font-size: 34px; }
+.proposed .card.back { background: var(--surface-raised); border: 3px solid var(--paper); }
+.proposed .card.back::after { content: '♠'; position: absolute; inset: 4px; display: grid; place-items: center; border: 1px solid var(--rail-edge); color: var(--gold); font-family: var(--display-font); font-size: 28px; }
+.proposed .seat { width: 128px; }
+.proposed .nameplate { background: var(--surface-inset); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px 6px; }
+.proposed .nameplate .pname { color: var(--text); font-size: 12px; font-weight: 500; }
+.proposed .nameplate .pchips { font-family: var(--number-font); font-size: 20px; font-weight: 500; color: var(--text); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.proposed .seat.me .nameplate { background: var(--surface-raised); }
+.proposed .seat.me { margin-top: 16px; }
+.proposed .seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 0 2px var(--felt-dark), 0 0 0 3px var(--gold); }
+.proposed .seat.active .pchips { color: var(--gold); }
+.proposed .seat.folded { opacity: .43; }
+.proposed .pos-chip { background: transparent; color: var(--muted); padding: 1px 0; margin-right: 8px; font-size: 9px; font-weight: 500; }
+.proposed .dealer-btn { background: var(--paper); color: var(--ink); width: 16px; height: 16px; line-height: 16px; font-size: 9px; margin-left: 7px; }
+.proposed .pbet:not(:empty) { border: none; background: var(--surface-inset); color: var(--gold); font-family: var(--number-font); font-size: 14px; border-radius: 10px; padding: 2px 12px; box-shadow: none; }
+.proposed .paction { color: var(--muted); margin-top: 3px; font-size: 10px; }
+.proposed .pot { display: flex; align-items: baseline; gap: 10px; justify-content: center; margin-top: 14px; color: var(--text); font-family: var(--number-font); font-weight: 500; font-size: 29px; }
+.proposed .pot-caption { display: block; font-size: 11px; color: var(--muted); font-family: var(--body-font); }
+.proposed .status { color: var(--gold); font-size: 12px; margin-top: 5px; }
+.proposed .turn-timer { font-size: 10px; color: var(--muted); font-weight: 400; margin-top: 5px; }
+.proposed .turn-timer strong { font-family: var(--number-font); font-size: 12px; margin-left: 5px; color: var(--text); }
+.proposed .turn-bar { height: 3px; width: 110px; background: var(--surface-inset); margin-top: 7px; }
+.proposed .turn-bar-fill { width: 80%; background: var(--gold); }
+.proposed .action-dock { background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px 6px; }
+.proposed .hand-rank { font-size: 14px; padding: 12px 10px 6px; }
+.proposed .hand-rank b { color: var(--text); font-weight: 500; }
+.proposed .act { border-radius: 6px; padding: 14px 26px; font-size: 14px; font-weight: 600; }
+.proposed .act.fold { background: var(--fold); color: var(--muted); border: 1px solid var(--line); }
+.proposed .act.call { background: var(--call); color: var(--text); border: 1px solid var(--rail-edge); }
+.proposed .act.call strong { margin-left: 10px; font-family: var(--number-font); font-size: 17px; font-weight: 500; }
+.proposed .act.raise { background: var(--gold); color: var(--ink); }
+.proposed .act.raise:hover, .proposed #join-btn:hover { background: var(--gold-hover); }
+.proposed .act.fold:hover, .proposed .act.call:hover { filter: brightness(1.15); }
+.proposed .bet-presets { gap: 6px; align-self: stretch; }
+.proposed .bet-preset { background: var(--surface-inset); border: 1px solid var(--line); color: var(--muted); border-radius: 4px; font-size: 12px; padding: 7px 17px; flex: 1; font-weight: 400; }
+.proposed .bet-preset:hover { color: var(--text); border-color: var(--rail-edge); }
+.proposed .raise-input { font-family: var(--number-font); font-size: 16px; padding: 9px 10px; width: 80px; border-radius: 4px; background: var(--surface-inset); border-color: var(--line); color: var(--text); }
+.proposed #raise-slider { width: 130px; accent-color: var(--gold); }
+.proposed .panel { background: var(--surface-inset); border: 1px solid var(--line); border-radius: 7px; }
+.proposed .panel-heading { color: var(--text); font-weight: 400; }
+.proposed .log-body, .proposed .chat-messages { color: var(--muted); font-size: 11px; }
+.proposed .log-body b { font-weight: 500; color: var(--text); }
+.proposed .log-current { color: var(--gold); }
+.proposed .chat-form { border-top-color: var(--line); }
+.proposed .chat-form input { background: var(--surface-inset); color: var(--text); font-size: 11px; }
+.proposed .chat-form button { background: var(--surface-raised); color: var(--gold); font-size: 11px; font-weight: 400; }
+.proposed #join-screen { background: var(--surface); }
+.proposed .join-box { width: 380px; padding: 34px 36px; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px var(--shadow); }
+.proposed .join-box h1 { color: var(--text); font-size: 42px; margin-bottom: 12px; }
+.proposed .subtitle { color: var(--muted); margin-bottom: 32px; font-size: 13px; }
+.proposed .join-box label { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+.proposed .join-box input { margin-top: 9px; padding: 13px 12px; border-radius: 5px; background: var(--surface-inset); border-color: var(--line); color: var(--text); font-size: 14px; }
+.proposed #join-btn { background: var(--gold); color: var(--ink); padding: 14px; font-size: 14px; border-radius: 5px; margin-top: 6px; }
+.proposed .join-box .trainer-entry { border: 1px solid var(--line); color: var(--muted); background: transparent; border-radius: 5px; font-size: 13px; padding: 13px; font-weight: 400; }
+.proposed .trainer-entry:hover { color: var(--gold); background: var(--surface-hover); }
+.proposed .hint { color: var(--muted); font-size: 11px; margin: 22px 0 0; text-align: center; }
+@media (min-width: 1550px) { .proposed .room-detail { display: inline; color: var(--muted); font-size: 11px; } }
+@media (max-width: 1100px) {
+  .table-meta { margin-left: auto; }
+  .table-nav { width: 100%; justify-content: flex-end; }
+  .table { width: min(75vw, 850px); height: 410px; }
+  .table-wrap { min-height: 540px; padding: 65px 45px; }
+  .panel { width: 175px; height: 135px; bottom: 20px; }
+  .log-panel { left: 12px; } .chat-panel { right: 12px; }
+  .action-dock { margin-bottom: 165px; }
+}
+@media (max-width: 800px) {
+  .preview-tools { padding: 10px 14px; gap: 10px; flex-wrap: wrap; }
+  .preview-title { width: 100%; justify-content: space-between; }
+  .preview-options { width: 100%; justify-content: space-between; }
+  .table { width: calc(100vw - 160px); height: 380px; }
+  .table-wrap { min-height: 530px; }
+  .seat, .proposed .seat { width: 100px; }
+  .card.small { width: 43px; height: 62px; }
+  .seat .player-cards { min-height: 62px; }
+  .proposed .nameplate .pchips { font-size: 17px; }
+  .proposed .nameplate .pname { font-size: 11px; }
+  .card { width: 60px; height: 84px; }
+  .community { min-height: 84px; }
+  .proposed .table-nav { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  #game-screen { height: auto; min-height: calc(100svh - 103px); }
+  .preview-tools { padding: 9px 12px; }
+  .preview-title { font-size: 11px; }
+  .preview-title span { font-size: 9px; }
+  .preview-options { gap: 10px; }
+  .segmented button { padding: 7px 10px; font-size: 11px; }
+  .topbar, .proposed .topbar { padding: 12px 14px 10px; gap: 10px 8px; }
+  .brand-mark, .proposed .brand-mark { font-size: 22px; }
+  #room-label, .proposed #room-label { font-size: 13px; }
+  .table-meta { gap: 8px; }
+  #blinds-label, .proposed #blinds-label { font-size: 10px; }
+  .mode-label { display: none; }
+  #phase-label, .proposed #phase-label { font-size: 10px; padding-left: 8px; }
+  .table-nav, .proposed .table-nav { margin: 0; width: 100%; gap: 2px; justify-content: space-between; }
+  .table-nav .small { font-size: 10px; padding: 6px 5px; min-height: 32px; }
+  .proposed .trainer-link { margin: 0; }
+  .table-wrap { padding: 46px 22px 58px; flex: none; min-height: 440px; height: auto; }
+  .table { width: calc(100vw - 62px); height: 340px; border-width: 7px; border-radius: 130px; }
+  .proposed .table { border-width: 8px; border-radius: 130px; }
+  .proposed .table::before { inset: 8px; }
+  .seat, .proposed .seat { width: 77px; }
+  .seat .player-cards { min-height: 44px; gap: 3px; margin-bottom: 5px; }
+  .card.small { width: 30px; height: 44px; border-radius: 4px; }
+  .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 13px; }
+  .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 11px; }
+  .proposed .card.small .pip { font-size: 22px; }
+  .proposed .card.back { border-width: 2px; }
+  .proposed .card.back::after { inset: 2px; font-size: 18px; }
+  .nameplate, .proposed .nameplate { padding: 5px 3px; border-radius: 5px; }
+  .proposed .nameplate .pname { font-size: 10px; }
+  .proposed .pos-chip { margin-right: 4px; font-size: 8px; }
+  .proposed .nameplate .pchips { font-size: 15px; margin-top: 3px; }
+  .proposed .dealer-btn { width: 12px; height: 12px; line-height: 12px; font-size: 8px; margin-left: 4px; }
+  .seat .paction, .proposed .paction { font-size: 9px; margin-top: 2px; }
+  .proposed .pbet:not(:empty) { font-size: 11px; padding: 1px 9px; }
+  .card { width: 42px; height: 60px; }
+  .card .corner-top, .card .corner-bottom { left: 4px; }
+  .card .corner-bottom { left: auto; right: 4px; }
+  .community { min-height: 60px; }
+  .proposed .card .pip { font-size: 30px; }
+  .board { top: 43%; }
+  .proposed .board { top: 45%; }
+  .proposed .seat.me { margin-top: 4px; }
+  .proposed .felt-signature { top: 19%; font-size: 15px; gap: 5px; }
+  .proposed .felt-signature span { font-size: 18px; }
+  .proposed .street-caption { font-size: 9px; margin-bottom: 7px; }
+  .proposed .pot { margin-top: 8px; gap: 7px; font-size: 23px; }
+  .proposed .pot-caption { font-size: 9px; }
+  .proposed .status { font-size: 11px; margin-top: 0; }
+  .proposed .turn-timer { font-size: 9px; margin-top: 2px; }
+  .proposed .turn-bar { width: 78px; margin-top: 5px; }
+  .action-dock, .proposed .action-dock { width: calc(100% - 24px); max-width: 440px; margin: 0 auto 12px; padding: 0 10px 6px; border-radius: 10px; }
+  .hand-rank, .proposed .hand-rank { padding: 10px 0 4px; font-size: 12px; }
+  .hand-caption { font-size: 10px; }
+  .hand-detail { font-size: 10px; margin-left: 12px; }
+  .action-bar { flex-direction: column; gap: 10px; padding: 10px 0 4px; }
+  .primary-actions { width: 100%; gap: 8px; }
+  .act, .proposed .act { font-size: 13px; padding: 11px 20px; min-height: 44px; }
+  .primary-actions .act { flex: 1; }
+  .proposed .act.call strong { font-size: 15px; }
+  .raise-group { width: 100%; flex: auto; gap: 9px; }
+  .bet-presets { width: 100%; flex-wrap: nowrap; }
+  .bet-preset, .proposed .bet-preset { min-height: 32px; padding: 6px 10px; font-size: 11px; }
+  .raise-controls { width: 100%; gap: 8px; }
+  #raise-slider, .proposed #raise-slider { width: 70px; flex: 1; min-width: 0; }
+  .raise-input, .proposed .raise-input { width: 65px; font-size: 14px; }
+  .raise-controls .act { flex: none; }
+  .panel, .proposed .panel { display: none; position: fixed; left: 10px; right: 10px; bottom: 62px; width: auto; height: 230px; z-index: 30; }
+  body.show-log .log-panel, body.show-chat .chat-panel { display: flex; }
+  .mobile-panels { display: flex; justify-content: center; gap: 14px; padding: 0 12px 16px; }
+  .mobile-panels .small { min-height: 36px; min-width: 90px; border-color: var(--line); }
+  #join-screen { min-height: calc(100svh - 103px); padding: 30px 20px; }
+  .join-box, .proposed .join-box { max-width: 100%; padding: 28px 26px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; } }

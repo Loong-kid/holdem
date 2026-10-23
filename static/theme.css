@@ -1,0 +1,296 @@
+/* Approved table refresh, 2026-10-23. The game and server protocol are unchanged. */
+:root {
+  --surface: #151d1b;
+  --surface-raised: #202c27;
+  --surface-inset: #101914;
+  --surface-hover: #30483c;
+  --line: #3c5045;
+  --text: #edf0e8;
+  --muted: #adbcb0;
+  --gold: #dbc18a;
+  --gold-hover: #e9d3a7;
+  --felt: #27664e;
+  --felt-dark: #20513f;
+  --rail: #2d3a32;
+  --rail-edge: #627063;
+  --paper: #fffdf5;
+  --red: #b82e40;
+  --ink: #24352c;
+  --call: #365e4c;
+  --fold: #302d2b;
+  --shadow: #0005;
+  --shadow-deep: #0008;
+  --felt-line: #94b59b45;
+  --danger: #f49898;
+  --success: #b4d6a8;
+  --focus: #e0d1a4;
+  --body-font: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Segoe UI', sans-serif;
+  --number-font: 'Bahnschrift', 'Aptos', 'Malgun Gothic', sans-serif;
+  --display-font: 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+}
+html { overflow-x: clip; }
+body { height: auto; min-height: 100dvh; overflow-x: clip; overflow-y: auto; background: var(--surface); color: var(--text); font-family: var(--body-font); }
+button, input, select { font-family: inherit; }
+button, a.small { white-space: nowrap; }
+button { touch-action: manipulation; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+button:not(:disabled):active { transform: translateY(1px); }
+input[type="range"], input[type="checkbox"] { accent-color: var(--gold); }
+input::placeholder { color: var(--muted); opacity: .7; }
+#game-screen { display: flex; flex-direction: column; min-height: 100dvh; }
+
+/* Entry */
+#join-screen { background: var(--surface); overflow-y: auto; padding: 28px 20px; }
+.join-box { width: 380px; max-width: 100%; padding: 34px 36px; margin: auto; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px var(--shadow); }
+.join-emblem { text-align: center; font-size: 42px; color: var(--gold); margin-bottom: 8px; }
+.join-box h1 { font-family: var(--display-font); color: var(--text); font-size: 42px; font-weight: 500; margin-bottom: 12px; }
+.subtitle { color: var(--muted); margin-bottom: 32px; font-size: 13px; }
+.join-box label { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+.join-box input { margin-top: 9px; padding: 13px 12px; border-radius: 5px; background: var(--surface-inset); border-color: var(--line); color: var(--text); font-size: 14px; }
+#join-btn { background: var(--gold); color: var(--ink); padding: 14px; font-size: 14px; border-radius: 5px; margin-top: 6px; }
+.trainer-entry { border-color: var(--line); color: var(--muted); background: transparent; border-radius: 5px; font-size: 13px; padding: 13px; font-weight: 400; }
+.trainer-entry:hover { color: var(--gold); background: var(--surface-hover); }
+.join-box .hint { color: var(--muted); font-size: 11px; margin: 22px 0 0; text-align: center; line-height: 1.8; }
+
+/* A room, its state, and its controls keep separate space as the header wraps. */
+.topbar { flex-wrap: wrap; gap: 12px 20px; min-height: 68px; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.table-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.brand-mark { color: var(--gold); font-size: 28px; }
+#room-label { max-width: min(24vw, 260px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; font-size: 15px; letter-spacing: -.4px; }
+.table-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+#blinds-label { color: var(--muted); font-family: var(--number-font); font-size: 13px; white-space: nowrap; }
+#phase-label { color: var(--gold); font-size: 12px; border-left: 1px solid var(--line); padding-left: 12px; }
+#mode-label:not(:empty), #tourney-label { background: var(--surface-raised); border-color: var(--line); color: var(--gold); }
+#spectator-label { color: var(--muted); font-size: 12px; }
+.table-nav { display: flex; align-items: center; gap: 3px; margin-left: auto; flex-wrap: wrap; }
+button.small { color: var(--muted); border: 1px solid transparent; border-radius: 5px; font-size: 12px; min-height: 32px; padding: 6px 9px; }
+button.small:hover { color: var(--text); background: var(--surface-raised); }
+button.small.accent { background: var(--gold); border-color: var(--gold); color: var(--ink); }
+a.small.trainer-link { border: 1px solid var(--line); border-radius: 5px; color: var(--gold); padding: 7px 10px; margin: 0 4px; }
+a.small.trainer-link:hover { background: var(--surface-raised); }
+
+/* Felt and cards. Percent-based seats surround the board; all game variants use it. */
+.table-wrap { flex: 1; height: auto; min-height: 580px; padding: 64px 90px 78px; }
+.table { flex: none; width: min(68vw, 940px); height: 450px; border: 12px solid var(--rail); outline: 1px solid var(--rail-edge); background: var(--felt-dark); box-shadow: inset 0 0 70px var(--shadow), 0 18px 38px var(--shadow); }
+.table::before { content: ''; position: absolute; inset: 14px; border: 1px solid var(--felt-line); border-radius: inherit; pointer-events: none; }
+.board { top: 45%; max-width: 75%; }
+.community { min-height: 0; }
+.card { width: 78px; height: 108px; background: var(--paper); color: var(--ink); border-radius: 6px; box-shadow: 0 3px 5px var(--shadow); flex: none; }
+.card.small { width: 54px; height: 76px; border-radius: 5px; }
+.card .pip { opacity: .14; font-size: 52px; }
+.card.small .pip { font-size: 34px; }
+.card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 18px; }
+.card.red { color: var(--red); }
+.card.back { background: var(--surface-raised); border: 3px solid var(--paper); }
+.card.back::after { content: '♠'; position: absolute; inset: 4px; display: grid; place-items: center; border: 1px solid var(--rail-edge); color: var(--gold); font-family: var(--display-font); font-size: 28px; }
+.card.placeholder { background: var(--felt-line); box-shadow: none; border: 1px dashed var(--rail-edge); }
+.board-tag { background: var(--gold); color: var(--ink); }
+.seat { width: 128px; }
+.seat .player-cards { min-height: 76px; gap: 5px; }
+.player-cards.four .card.small:not(:last-child) { margin-right: -25px; }
+.nameplate { background: var(--surface-inset); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px 6px; }
+.nameplate .pname { color: var(--text); font-size: 12px; font-weight: 500; }
+.nameplate .pchips { font-family: var(--number-font); font-size: 20px; font-weight: 500; color: var(--text); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.seat.me .nameplate { background: var(--surface-raised); }
+.seat.me { margin-top: 16px; }
+.seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 0 2px var(--felt-dark), 0 0 0 3px var(--gold); }
+.seat.active .pchips { color: var(--gold); }
+.seat.folded { opacity: .43; }
+.seat.disconnected .nameplate { border-color: var(--gold); box-shadow: none; }
+.pos-chip { background: transparent; color: var(--muted); padding: 1px 0; margin-right: 7px; font-size: 9px; font-weight: 500; }
+.dealer-btn { background: var(--paper); color: var(--ink); width: 16px; height: 16px; line-height: 16px; font-size: 9px; margin-left: 7px; }
+.seat .pbet:not(:empty) { border: none; background: var(--surface-inset); color: var(--gold); font-family: var(--number-font); font-size: 14px; border-radius: 10px; padding: 2px 12px; box-shadow: none; }
+.seat .paction { color: var(--muted); margin-top: 3px; font-size: 10px; }
+.winner-badge, .rp-win, .board-table .net-pos { color: var(--success); }
+.board-table .net-neg, .turn-timer.urgent { color: var(--danger); }
+.pot { display: flex; align-items: baseline; gap: 10px; justify-content: center; margin-top: 12px; color: var(--text); font-family: var(--number-font); font-weight: 500; font-size: 29px; }
+.pot:empty { display: none; }
+.pot-caption { font-size: 11px; color: var(--muted); font-family: var(--body-font); white-space: nowrap; }
+.status { color: var(--gold); font-size: 12px; margin-top: 5px; max-width: 450px; line-height: 1.5; }
+.turn-timer { font-family: var(--number-font); font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 5px; }
+.turn-bar { height: 3px; width: 110px; background: var(--surface-inset); margin-top: 7px; }
+.turn-bar-fill { background: var(--gold); }
+.turn-bar-fill.urgent { background: var(--danger); }
+.double-board .board { top: 49%; }
+.double-board .board-row .card.small { width: 48px; height: 66px; }
+
+/* Actions are one stable dock, including waiting and queued moves. */
+.action-dock { width: fit-content; min-width: 330px; max-width: calc(100% - 32px); margin: 0 auto 20px; position: relative; z-index: 5; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; }
+.hand-rank { font-size: 13px; color: var(--muted); padding: 5px 10px; }
+.hand-rank b { color: var(--text); font-weight: 500; }
+.action-bar { padding: 9px 6px; gap: 18px; }
+.primary-actions { display: flex; gap: 8px; }
+.act { border-radius: 6px; padding: 14px 24px; font-size: 14px; font-weight: 600; min-height: 48px; }
+.act.fold { background: var(--fold); color: var(--muted); border: 1px solid var(--line); }
+.act.check, .act.call { background: var(--call); color: var(--text); border: 1px solid var(--rail-edge); }
+.act.raise { background: var(--gold); color: var(--ink); }
+.act.raise:hover:not(:disabled), #join-btn:hover { background: var(--gold-hover); }
+.act.fold:hover:not(:disabled), .act.check:hover:not(:disabled), .act.call:hover:not(:disabled) { filter: brightness(1.15); }
+.raise-group { gap: 10px; }
+.bet-presets { gap: 5px; align-self: stretch; }
+.bet-preset { background: var(--surface-inset); border: 1px solid var(--line); color: var(--muted); border-radius: 4px; font-size: 11px; padding: 7px 10px; font-weight: 400; }
+.bet-preset:hover { background: var(--surface-hover); color: var(--text); border-color: var(--rail-edge); }
+.raise-controls { width: 100%; gap: 10px; }
+.raise-input { font-family: var(--number-font); font-size: 16px; padding: 9px 10px; width: 85px; border-radius: 4px; background: var(--surface-inset); border-color: var(--line); color: var(--text); }
+#raise-slider { flex: 1; width: 125px; min-width: 0; }
+.waiting-bar { padding: 12px; }
+.waiting-hint { color: var(--muted); margin: 0; line-height: 1.7; text-align: center; }
+.preaction-bar .pre-label { color: var(--muted); }
+.pre-btn { border-color: var(--line); background: var(--surface-inset); color: var(--muted); font-weight: 500; }
+.pre-btn:hover { background: var(--surface-hover); }
+.pre-btn.sel { background: var(--gold); color: var(--ink); }
+.mobile-panels { display: none; }
+
+/* Existing resize handles remain functional. */
+.panel { bottom: 20px; width: 210px; height: 165px; z-index: 7; background: var(--surface-inset); border: 1px solid var(--line); border-radius: 7px; }
+.log-panel { left: 20px; } .chat-panel { right: 20px; height: 180px; }
+.panel-heading { padding: 4px 12px 5px; font-size: 12px; color: var(--text); }
+.panel-handle { background: var(--surface-inset); }
+.panel-handle .grip { background: var(--rail-edge); }
+.log-body, .chat-messages { color: var(--muted); font-size: 11px; line-height: 1.8; }
+.chat-messages .cname { color: var(--gold); font-weight: 500; }
+.chat-form { border-top-color: var(--line); }
+.chat-form input { min-width: 0; width: 100%; background: var(--surface-inset); color: var(--text); font-size: 11px; }
+.chat-form button { background: var(--surface-raised); color: var(--gold); font-size: 11px; font-weight: 400; }
+
+/* Settings, records and replay share the approved palette, retaining every control. */
+.modal { background: var(--shadow-deep); }
+.modal-box { background: var(--surface-raised); border-color: var(--line); border-radius: 12px; color: var(--text); }
+.modal-head h2 { color: var(--text); font-size: 18px; font-weight: 500; }
+.modal-close { color: var(--muted); min-width: 32px; min-height: 32px; }
+.modal-note, .muted, .replay-scrub-hint, .sitting-badge { color: var(--muted); }
+.settings-section, .board-table th, .board-table td, .replay-list { border-color: var(--line); }
+.settings-section h3, .field-row label, .check-row { color: var(--text); }
+.field-row input, .field-row select, .tl-row input, .adjust-row input { background: var(--surface-inset); border-color: var(--line); color: var(--text); }
+.db-status, .adjust-row, .rp-row { background: var(--surface-inset); }
+.db-status .ok { color: var(--success); }
+.db-status .ver, .tl-row .tl-lab { color: var(--muted); }
+.mini-btn { background: var(--gold); color: var(--ink); }
+.mini-btn.ghost { color: var(--gold); border-color: var(--line); }
+.mini-btn.ghost:hover { background: var(--surface-hover); }
+.board-table th, .rp-act { color: var(--muted); }
+.arow-add { background: var(--call); }
+.arow-remove { background: var(--fold); color: var(--danger); }
+.replay-item { color: var(--muted); }
+.replay-item.sel { background: var(--surface-inset); border-color: var(--gold); }
+.rp-pos { background: var(--surface-hover); color: var(--text); }
+.rp-hand { color: var(--success); }
+.replay-caption { margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 1200px) {
+  .table-meta { margin-left: auto; }
+  .table-nav { width: 100%; justify-content: flex-end; }
+  .table { width: min(76vw, 900px); }
+  .panel { width: 165px; }
+  .log-panel { left: 12px; } .chat-panel { right: 12px; }
+  .action-dock { margin-bottom: 205px; }
+}
+@media (max-width: 800px) and (min-width: 601px) {
+  .table { width: calc(100vw - 150px); }
+  .seat { width: 105px; }
+  .card { width: 62px; height: 88px; }
+  .card.small { width: 44px; height: 64px; }
+  .seat .player-cards { min-height: 64px; }
+  .player-cards.four .card.small:not(:last-child) { margin-right: -23px; }
+  .nameplate { padding: 6px 4px; }
+  .nameplate .pchips { font-size: 17px; }
+  .nameplate .pname { font-size: 11px; }
+  .table-nav { justify-content: flex-start; }
+}
+@media (max-width: 600px) {
+  #game-screen { height: auto; min-height: 100dvh; }
+  .topbar { padding: 10px 12px; gap: 8px; }
+  .table-identity { gap: 7px; }
+  .brand-mark { font-size: 22px; }
+  #room-label { font-size: 13px; max-width: 40vw; }
+  .table-meta { gap: 6px 8px; }
+  #blinds-label { font-size: 11px; }
+  #phase-label { font-size: 10px; padding-left: 8px; }
+  #tourney-label { width: auto; }
+  .table-nav { margin: 0; width: 100%; gap: 3px; justify-content: flex-start; }
+  .table-nav button.small, a.small.trainer-link { font-size: 11px; padding: 7px 8px; min-height: 34px; }
+  a.small.trainer-link { margin: 0; }
+  .table-wrap { padding: 46px 22px 58px; flex: 1; min-height: 460px; height: auto; }
+  .table { width: calc(100vw - 62px); height: 350px; border-width: 8px; border-radius: 130px; }
+  .table::before { inset: 8px; }
+  .board { top: 48%; max-width: 100%; }
+  .card { width: 40px; height: 58px; }
+  .card .pip { font-size: 30px; }
+  .card.small { width: 30px; height: 44px; border-radius: 4px; }
+  .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 13px; }
+  .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 11px; }
+  .card.small .pip { font-size: 22px; }
+  .card.back { border-width: 2px; }
+  .card.back::after { inset: 2px; font-size: 18px; }
+  .board-row { gap: 3px; }
+  .board-row .card { width: clamp(26px, 8.2vw, 34px); height: clamp(38px, 12vw, 49px); }
+  .board-row .card .corner-top, .board-row .card .corner-bottom { left: 3px; }
+  .board-row .card .corner-bottom { left: auto; right: 3px; }
+  .board-row .card .corner-top .r, .board-row .card .corner-bottom .r { font-size: clamp(11px, 3.4vw, 14px); }
+  .board-row .card .corner-top .s, .board-row .card .corner-bottom .s { font-size: 10px; }
+  .board-row .card .pip { font-size: 23px; }
+  .seat { width: clamp(64px, 19vw, 77px); }
+  .seat.me { margin-top: 4px; }
+  .seat .player-cards { min-height: 44px; gap: 3px; margin-bottom: 5px; }
+  .player-cards.four .card.small:not(:last-child) { margin-right: -16px; }
+  .nameplate { padding: 5px 3px; border-radius: 5px; }
+  .nameplate .pname { font-size: 10px; }
+  .pos-chip { margin-right: 4px; font-size: 8px; }
+  .nameplate .pchips { font-size: 15px; margin-top: 3px; }
+  .dealer-btn { width: 12px; height: 12px; line-height: 12px; font-size: 8px; margin-left: 4px; }
+  .seat .paction { font-size: 9px; margin-top: 2px; }
+  .seat .pbet:not(:empty) { font-size: 11px; padding: 1px 9px; }
+  .pot { margin-top: 8px; gap: 7px; font-size: 23px; }
+  .pot-caption { font-size: 9px; }
+  .status { font-size: 11px; margin-top: 2px; max-width: 215px; }
+  .turn-timer { font-size: 11px; margin-top: 3px; }
+  .turn-bar { width: 78px; margin-top: 5px; }
+  .double-board .board { top: 48%; }
+  .double-board .community { gap: 5px; }
+  .double-board .status { font-size: 10px; }
+  .double-board .pot { margin-top: 5px; }
+  .double-board .board-row.multi .card.small { width: clamp(23px, 7.5vw, 30px); height: clamp(35px, 11vw, 43px); }
+  .board-row.multi { gap: 2px; }
+  .board-tag { width: 12px; height: 12px; line-height: 12px; font-size: 8px; margin-right: 0; }
+  .action-dock { width: calc(100% - 24px); min-width: 0; max-width: 460px; margin: 0 auto 10px; padding: 8px 10px; border-radius: 10px; }
+  .hand-rank { padding: 3px 0 5px; font-size: 12px; }
+  .action-bar { flex-direction: column; flex-wrap: nowrap; gap: 10px; padding: 6px 0 3px; }
+  .primary-actions { width: 100%; gap: 8px; }
+  .act { font-size: 14px; padding: 11px 20px; min-height: 44px; }
+  .primary-actions .act { flex: 1; }
+  .raise-group { width: 100%; flex: auto; gap: 9px; }
+  .bet-presets { width: 100%; flex-wrap: wrap; }
+  .bet-preset { min-height: 32px; padding: 6px 8px; font-size: 11px; flex: 1; }
+  .raise-controls { width: 100%; gap: 8px; }
+  #raise-slider { width: 70px; flex: 1; min-width: 0; }
+  .raise-input { width: 72px; font-size: 14px; }
+  .raise-controls .act { flex: none; }
+  .waiting-bar { padding: 6px; }
+  .preaction-bar { gap: 6px; padding: 4px; }
+  .pre-btn { font-size: 12px; padding: 10px; }
+  .panel { display: none; position: fixed; left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); width: auto; height: 42dvh; max-height: 65dvh; z-index: 30; background: var(--surface-inset); }
+  .panel-handle { height: 22px; }
+  .panel-heading { padding-bottom: 9px; }
+  .chat-messages, .log-body, .chat-form input { font-size: 13px; }
+  .chat-form input, .chat-form button { padding: 12px; }
+  .mobile-panels { display: flex; justify-content: center; gap: 14px; padding: 0 12px max(12px, env(safe-area-inset-bottom)); }
+  .mobile-panels button.small { min-height: 36px; min-width: 90px; border-color: var(--line); }
+  .join-box { padding: 28px 26px; }
+  .modal-box, .modal-box.wide { width: calc(100vw - 24px); padding: 18px 14px; max-height: 88dvh; }
+  .modal-head-actions { flex-wrap: wrap; gap: 5px; }
+  .modal-head .mini-btn { font-size: 11px; padding: 8px; }
+  .board-table { font-size: 11px; }
+  .board-table th, .board-table td { padding: 7px 4px; }
+}
+@media (max-width: 350px) {
+  .seat { width: 60px; }
+  .nameplate .pchips { font-size: 14px; }
+  .pos-chip { font-size: 7px; margin-right: 3px; }
+  .board-row { gap: 2px; }
+  .board-row .card { width: 24px; height: 36px; }
+  .double-board .board-row.multi .card.small { width: 22px; height: 33px; }
+  .board-tag { width: 10px; height: 10px; line-height: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; scroll-behavior: auto !important; }
+}

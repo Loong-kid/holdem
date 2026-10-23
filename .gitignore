@@ -34,6 +34,7 @@ gto_*_out.txt
 gto_mock.json
 verify_gto*.*
 tests/shots/
+design-preview/screenshots/
 
 # Cloudflare local runtime and generated build files
 node_modules/

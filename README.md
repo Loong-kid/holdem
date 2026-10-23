@@ -9,6 +9,10 @@
   `backup/render-supabase-v37-20261023`에 보존한다.
 - Cloudflare 개발 브랜치: `cloudflare-migration`. `main`은 기존 Render 배포와
   연결되어 있으므로 Cloudflare 작업을 무심코 main에 합쳐 기존 서버를 바꾸지 않는다.
+- 2026-10-23 승인한 디자인 시안을 입장·테이블·설정/복기 화면에 적용했다.
+  정적 화면 리비전은 `39`; 게임 서버 버전은 `v38-cloudflare`를 유지한다.
+  원본 시안은 `design-preview/`에 보존하며 운영 빌드에는 포함하지 않는다.
+- 브랜치·커밋·배포의 차이는 [Git과 배포 안내](docs/git-and-deployments.md)를 참고한다.
 
 ## Cloudflare 개발·배포
 
@@ -37,11 +41,15 @@ py tools/cloudflare_manage.py deploy
 uv run --group test python -m unittest discover -s tests -p "test_*.py"
 uv run --group test python tests/cloudflare_integration.py
 uv run --group test python tests/cloudflare_browser.py http://127.0.0.1:8787
+uv run --group test python tests/theme_browser.py http://127.0.0.1:8787
 ```
 
 브라우저 검증은 설치된 Chrome을 사용한다. 통합 검증은 별도 로컬 저장 경로에서
 실제 workerd 재시작·D1 장애·영구 대기열 복구를 확인한다.
 브라우저 검증은 지정한 주소의 고유한 테스트 방에서 6핸드를 만든다.
+`theme_browser.py`는 실제 엔진이 만든 2·6·9인 상태를 브라우저에서만 렌더링한다.
+8개 화면 폭과 종목/스트리트 144개 조합의 가로 넘침·좌석/보드 겹침을 검사하며,
+게임방 연결이나 운영 DB 쓰기는 하지 않는다.
 
 ## 데이터와 복구
 
