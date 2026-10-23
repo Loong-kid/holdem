@@ -1,5 +1,11 @@
 # Holdem
 
+Cloudflare 이전 작업 브랜치: 기존 운영 기준은 `../Holdem`의 `main`과
+`backup/render-supabase-v37-20261023`에 보존했다.
+진행 상태·목표 구조·전환 조건은 [Cloudflare 이전 설계](docs/cloudflare-migration.md)를 참고한다.
+현재는 게임 엔진의 버전 있는 JSON 저장·복원 기반까지 구현했으며,
+Cloudflare 서버 실행·DB 이전·배포는 후속 단계다.
+
 웹 멀티플레이 텍사스 홀덤 (No-Limit). Python FastAPI + WebSocket 백엔드, vanilla JS 프론트.
 같은 방 이름으로 접속한 사람들이 한 테이블에서 같이 플레이한다.
 
