@@ -1,10 +1,74 @@
 # Holdem
 
-Cloudflare 이전 작업 브랜치: 기존 운영 기준은 `../Holdem`의 `main`과
-`backup/render-supabase-v37-20261023`에 보존했다.
-진행 상태·목표 구조·전환 조건은 [Cloudflare 이전 설계](docs/cloudflare-migration.md)를 참고한다.
-현재는 게임 엔진의 버전 있는 JSON 저장·복원 기반까지 구현했으며,
-Cloudflare 서버 실행·DB 이전·배포는 후속 단계다.
+현재 운영 기준은 **Cloudflare Workers + Durable Objects + D1**이다.
+
+- 사이트: https://holdem-cloudflare.loong-kid.workers.dev
+- 레인지 트레이너: https://holdem-cloudflare.loong-kid.workers.dev/trainer/
+- 서버 버전: `v38-cloudflare`, `/health`에서 확인.
+- 기존 Render + Supabase 버전은 `../Holdem`의 `main`과
+  `backup/render-supabase-v37-20261023`에 보존한다.
+- Cloudflare 개발 브랜치: `cloudflare-migration`. `main`은 기존 Render 배포와
+  연결되어 있으므로 Cloudflare 작업을 무심코 main에 합쳐 기존 서버를 바꾸지 않는다.
+
+## Cloudflare 개발·배포
+
+필요 도구: Node.js, uv. 저장소에서 다음을 실행한다.
+
+```powershell
+npm.cmd install
+uv sync --group test
+py tools/cloudflare_manage.py dev
+```
+
+`dev`는 정적 자산·Python 패키지를 준비하고 로컬 D1 스키마를 적용한 뒤
+http://127.0.0.1:8787 에서 실제 Cloudflare 런타임을 실행한다.
+프로젝트에 고정한 uv/Workers 도구를 사용하므로 전역 uv를 바꾸지 않는다.
+
+```powershell
+npm.cmd exec wrangler -- login
+py tools/cloudflare_manage.py deploy
+```
+
+`deploy`는 D1 마이그레이션 확인 후 Worker와 정적 파일을 함께 배포한다.
+다른 계정에서는 먼저 D1을 생성하고 `wrangler.jsonc`의 DB ID를 바꿔야 한다.
+인증 비밀값은 저장소에 넣지 않는다. Cloudflare 빌드는 원본 PDF·백업·개발 도구를 포함하지 않는다.
+
+```powershell
+uv run --group test python -m unittest discover -s tests -p "test_*.py"
+uv run --group test python tests/cloudflare_integration.py
+uv run --group test python tests/cloudflare_browser.py http://127.0.0.1:8787
+```
+
+브라우저 검증은 설치된 Chrome을 사용한다. 통합 검증은 별도 로컬 저장 경로에서
+실제 workerd 재시작·D1 장애·영구 대기열 복구를 확인한다.
+브라우저 검증은 지정한 주소의 고유한 테스트 방에서 6핸드를 만든다.
+
+## 데이터와 복구
+
+Supabase의 332핸드·7개 방을 전체 백업하고 D1에 이관했다(2026-10-23).
+원본 식별 키와 이벤트 SHA256 및 운영 HTTP 조회 결과의 모든 메타데이터·이벤트를 대조했다.
+원본 파일은 `../Holdem/backups/20261023-render-supabase-v37/holdem-all-hands.json`,
+해시·건수는 같은 폴더의 `database-manifest.json`에 있다. 백업에는 개인 카드가 있으므로 공개하지 않는다.
+
+```powershell
+py tools/import_legacy.py <전체백업.json> --remote
+```
+
+가져오기는 원본 ID로 중복을 막고 이벤트 해시를 검증한다.
+진행 중인 게임은 Durable Object에 저장하고, 완료 핸드는 영구 outbox를 거쳐 D1에 저장한다.
+D1 장애 중에도 outbox를 유지해 재시도한다. 새 핸드 번호는 테이블 세션 ID와 함께 식별한다.
+대용량 복기/GTO 연산은 게임방과 다른 Durable Object에서 처리한다.
+
+기존 Render와 새 Cloudflare의 진행 중인 방·새 기록은 실시간 동기화하지 않는다.
+전환 이후에는 새 Cloudflare 주소로 함께 접속한다. 기존 버전으로 돌아갈 때는 새 기록도 별도로 백업한다.
+트레이너 점수는 기존과 같이 브라우저 localStorage이며 도메인이 달라지면 별도 기록으로 시작한다.
+
+세부 설계는 [Cloudflare 이전 문서](docs/cloudflare-migration.md)를 참고한다.
+
+---
+
+아래는 기존 Render 버전의 구조·실행 참고다. 해당 서버의 원래 의존성은
+`legacy/requirements-render.txt`에 남겨두었다.
 
 웹 멀티플레이 텍사스 홀덤 (No-Limit). Python FastAPI + WebSocket 백엔드, vanilla JS 프론트.
 같은 방 이름으로 접속한 사람들이 한 테이블에서 같이 플레이한다.

@@ -1,0 +1,21 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "holdem-cloudflare",
+  "main": "cloudflare/entry.py",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
+  "assets": {
+    "directory": ".cloudflare-assets",
+    "binding": "ASSETS",
+    "run_worker_first": ["/ws", "/health", "/keepalive", "/export", "/gto", "/gto_charts"]
+  },
+  "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "PokerRoom" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PokerRoom"] }],
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "holdem-hands",
+    "database_id": "7c482013-7467-4ce1-b81a-3765c3cce380",
+    "migrations_dir": "cloudflare/migrations"
+  }],
+  "observability": { "enabled": true }
+}

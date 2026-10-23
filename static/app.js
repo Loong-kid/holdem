@@ -208,6 +208,11 @@ $("join-btn").onclick = () => {
   openSocket(false);
 };
 
+function sendMessage(message) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ ...message, command_id: crypto.randomUUID() }));
+}
+
 function openSocket(isReconnect) {
   awaitingRejoin = !!isReconnect;
   // 기존 소켓이 남아있으면 닫고 새로 연다(좀비 연결 방지). onclose를 떼고 닫아야
@@ -216,9 +221,9 @@ function openSocket(isReconnect) {
     try { ws.onclose = null; ws.onmessage = null; ws.close(); } catch (e) {}
   }
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?room=${encodeURIComponent(myRoom)}`);
   ws.onopen = () =>
-    ws.send(JSON.stringify({ type: "join", room: myRoom, name: myName, token: getToken() }));
+    sendMessage({ type: "join", room: myRoom, name: myName, token: getToken() });
   ws.onmessage = (ev) => onSocketMessage(JSON.parse(ev.data));
   ws.onclose = () => onSocketClose();
 }
@@ -300,11 +305,11 @@ document.addEventListener("visibilitychange", () => {
 $("take-seat-btn").onclick = () => {
   const nm = (myName && myName.trim()) || $("name-input").value.trim() || "Player";
   myName = nm;
-  ws.send(JSON.stringify({ type: "sit", name: nm, token: getToken() }));
+  sendMessage({ type: "sit", name: nm, token: getToken() });
 };
 $("stand-btn").onclick = () => {
   if (confirm("자리에서 일어나 관전 모드로 전환할까요? (스택 기록은 남습니다)"))
-    ws.send(JSON.stringify({ type: "stand" }));
+    sendMessage({ type: "stand" });
 };
 
 // Click the spectator label to see WHO is watching.
@@ -340,10 +345,10 @@ $("leave-btn").onclick = () => {
   joinedOnce = false;
   localStorage.removeItem("lastRoom");
   localStorage.removeItem("lastName");
-  try { ws.send(JSON.stringify({ type: "leave" })); } catch (e) {}
+  try { sendMessage({ type: "leave" }); } catch (e) {}
   setTimeout(() => location.reload(), 120);
 };
-$("deal-btn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
+$("deal-btn").onclick = () => sendMessage({ type: "start" });
 
 // ---- Modals (settings + leaderboard) --------------------------------------
 function openModal(id) { $(id).classList.remove("hidden"); }
@@ -351,7 +356,7 @@ function closeModal(id) { $(id).classList.add("hidden"); }
 $("settings-btn").onclick = () => { renderSettings(); initTournamentEditor(); openModal("settings-modal"); };
 $("board-btn").onclick = () => { renderBoard(); openModal("board-modal"); };
 $("replay-btn").onclick = () => {
-  ws.send(JSON.stringify({ type: "list_replays" }));   // refresh from server/DB
+  sendMessage({ type: "list_replays" });   // refresh from server/DB
   renderReplayList();
   openModal("replay-modal");
 };
@@ -363,24 +368,24 @@ document.querySelectorAll(".modal").forEach((m) => {
 });
 
 $("apply-blinds").onclick = () =>
-  ws.send(JSON.stringify({
+  sendMessage({
     type: "set_blinds",
     sb: parseInt($("sb-input").value, 10),
     bb: parseInt($("bb-input").value, 10),
-  }));
+  });
 $("apply-default-stack").onclick = () =>
-  ws.send(JSON.stringify({
+  sendMessage({
     type: "set_default_stack",
     amount: parseInt($("default-stack-input").value, 10),
-  }));
+  });
 $("apply-variant").onclick = () =>
-  ws.send(JSON.stringify({
+  sendMessage({
     type: "set_variant",
     variant: $("variant-select").value,
     betting: $("betting-select").value,
-  }));
+  });
 $("allow-ip").onchange = (e) =>
-  ws.send(JSON.stringify({ type: "set_allow_same_ip", value: e.target.checked }));
+  sendMessage({ type: "set_allow_same_ip", value: e.target.checked });
 $("show-positions").onchange = (e) => {
   showPositions = e.target.checked;
   localStorage.setItem("showPositions", showPositions ? "1" : "0");
@@ -392,10 +397,10 @@ $("sound-on").onchange = (e) => {
   if (soundOn) { initAudio(); sfx("chip"); }   // unlock + play a test blip
 };
 $("apply-timeout").onclick = () =>
-  ws.send(JSON.stringify({
+  sendMessage({
     type: "set_timeout",
     amount: parseInt($("timeout-input").value, 10),
-  }));
+  });
 
 // ---- Tournament setup editor ----------------------------------------------
 // The editor is a draft form: it loads the current server config when the
@@ -459,21 +464,21 @@ $("tourney-count").onchange = () => {
 };
 
 $("apply-tournament").onclick = () =>
-  ws.send(JSON.stringify({
+  sendMessage({
     type: "set_tournament",
     enabled: $("tourney-enabled").checked,
     minutes: parseInt($("tourney-minutes").value, 10),
     levels: readShownLevels(),
-  }));
+  });
 
 // Start/pause continuous dealing (host only). Handler is wired in render().
 $("game-toggle-btn").onclick = () =>
-  ws.send(JSON.stringify({ type: state && state.auto_running ? "pause" : "start" }));
+  sendMessage({ type: state && state.auto_running ? "pause" : "start" });
 
 // Personal controls: sit out / come back, and rebuy when busted.
 $("sit-btn").onclick = () =>
-  ws.send(JSON.stringify({ type: "sit_out", value: !(priv && priv.sitting_out) }));
-$("rebuy-btn").onclick = () => ws.send(JSON.stringify({ type: "rebuy" }));
+  sendMessage({ type: "sit_out", value: !(priv && priv.sitting_out) });
+$("rebuy-btn").onclick = () => sendMessage({ type: "rebuy" });
 
 // On phones the docked panels become bottom-sheet drawers toggled from the top
 // bar (📜 log / 💬 chat); only one is open at a time. On desktop they stay docked.
@@ -520,12 +525,12 @@ $("log-toggle").onclick = () => toggleDrawer("log");
 $("chat-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("chat-input").value.trim();
-  if (text && ws) ws.send(JSON.stringify({ type: "chat", text }));
+  if (text && ws) sendMessage({ type: "chat", text });
   $("chat-input").value = "";
 });
 
 function adjustStack(targetId, delta) {
-  ws.send(JSON.stringify({ type: "adjust_stack", target: targetId, delta }));
+  sendMessage({ type: "adjust_stack", target: targetId, delta });
 }
 
 // ---- Actions --------------------------------------------------------------
@@ -536,7 +541,7 @@ $("raise-btn").onclick = () =>
   sendAction("raise", parseInt($("raise-amount").value, 10));
 
 function sendAction(action, amount = 0) {
-  ws.send(JSON.stringify({ type: "action", action, amount }));
+  sendMessage({ type: "action", action, amount });
 }
 
 // ---- Pre-actions ("선행 액션") --------------------------------------------
@@ -1089,7 +1094,7 @@ function renderReplayList() {
     d.onclick = () => {
       [...box.children].forEach((c) => c.classList.remove("sel"));
       d.classList.add("sel");
-      ws.send(JSON.stringify({ type: "get_replay", number: r.number }));
+      sendMessage({ type: "get_replay", number: r.number });
     };
     box.appendChild(d);
   });

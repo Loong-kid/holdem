@@ -34,3 +34,17 @@ gto_*_out.txt
 gto_mock.json
 verify_gto*.*
 tests/shots/
+
+# Cloudflare local runtime and generated build files
+node_modules/
+.wrangler/
+.cloudflare-assets/
+cloudflare/poker/
+cloudflare/gto/
+cloudflare/chart_data.py
+cloudflare/vendor/
+src/vendor/
+python_modules/
+.venv-workers/
+.dev.vars
+.env

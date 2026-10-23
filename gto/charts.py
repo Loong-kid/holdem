@@ -148,7 +148,11 @@ def _name_pos_token(name):
 
 class ChartProvider:
     def __init__(self, db_path="chart_db.json"):
-        db = json.load(open(db_path, encoding="utf-8"))
+        if isinstance(db_path, dict):
+            db = db_path  # Worker: bundled data instead of a filesystem dependency.
+        else:
+            with open(db_path, encoding="utf-8") as source:
+                db = json.load(source)
         # (tier, pos_token) -> hands dict  (단순 OR 차트만; 특수/전략 차트 제외)
         self.index = {}
         for c in db["charts"]:

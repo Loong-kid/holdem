@@ -1,0 +1,10 @@
+{
+  "name": "holdem-cloudflare",
+  "private": true,
+  "scripts": {
+    "build": "uv run python tools/build_cloudflare.py",
+    "dev": "uv run python tools/cloudflare_manage.py dev",
+    "deploy": "uv run python tools/cloudflare_manage.py deploy"
+  },
+  "devDependencies": { "wrangler": "4.152.0" }
+}
