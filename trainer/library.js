@@ -8,10 +8,27 @@ function libraryOptions(select, options) {
   }));
 }
 function librarySpot() { return DB.byId[$("library-spot").value]; }
+// 차트 탐색은 파일명/알파벳순이 아니라 프리플랍 액션 순서로 한다.
+function libraryPositionRank(position) {
+  const rank = Core.POS_ORDER.indexOf(position);
+  return rank < 0 ? Core.POS_ORDER.length : rank;
+}
+function compareLibrarySpots(a, b) {
+  const tables = ["ring", "bvb", "hu"];
+  const kinds = ["open", "vs_open", "vs_limp", "rejam", "call_rejam"];
+  return libraryPositionRank(a.hero) - libraryPositionRank(b.hero)
+    || tables.indexOf(a.table) - tables.indexOf(b.table)
+    || kinds.indexOf(a.kind) - kinds.indexOf(b.kind)
+    || libraryPositionRank(a.villain) - libraryPositionRank(b.villain)
+    || (a.stack?.[0] ?? Infinity) - (b.stack?.[0] ?? Infinity)
+    || (a.stack?.[1] ?? Infinity) - (b.stack?.[1] ?? Infinity)
+    || a.title.localeCompare(b.title, "ko", { numeric: true })
+    || a.id.localeCompare(b.id, "en", { numeric: true });
+}
 function searchLibrary() {
   const query = $("library-search").value.trim().toLowerCase();
   const current = $("library-spot").value;
-  const matches = DB.spots.filter((s) => `${s.title} ${s.id} ${s.profile || ""}`.toLowerCase().includes(query));
+  const matches = DB.spots.filter((s) => `${s.title} ${s.id} ${s.profile || ""}`.toLowerCase().includes(query)).sort(compareLibrarySpots);
   libraryOptions($("library-spot"), matches.map((s) => [s.id, s.title]));
   if (matches.some((s) => s.id === current)) $("library-spot").value = current;
   configureLibrary();

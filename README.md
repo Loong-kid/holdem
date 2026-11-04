@@ -106,6 +106,8 @@ static/          index.html / style.css / app.js (포커 테이블 UI)
 
 원본 앱은 `../range-trainer`, 배포용 파일은 `trainer/`. 원본 수정 후 `py sync_trainer.py`로 동기화하고 `py sync_trainer.py --check`로 확인한다. 배포 저장소에 실행 파일·차트 데이터·승률표가 포함되어, Render는 형제 프로젝트 없이 이 저장소만으로 실행한다. 원본 PDF·핸드 히스토리·로컬 테스트 스크린샷은 묶지 않는다.
 
+전체 차트 목록은 UTG → UTG+1 → UTG+2 → MP → HJ → CO → BTN → SB → BB 순이다. 같은 포지션에서는 테이블 유형·상황별로 묶고 상대 포지션과 스택 순으로 정렬한다. 검색과 차트 휠 탐색도 이 순서를 유지하며 퀴즈 출제 순서에는 영향을 주지 않는다.
+
 검증: `python -m unittest discover -s tests -p "test_*.py"`; Playwright가 설치된 Python으로 `python tests/trainer_browser.py`(Chrome, 데스크톱/폰). 테스트 서버용 Python은 `SERVER_PYTHON`으로 지정 가능하며 기본은 `.venv/Scripts/python.exe`이다.
 
 ## Render 배포
