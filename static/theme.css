@@ -1,5 +1,20 @@
-/* Approved table refresh, 2026-10-23. The game and server protocol are unchanged. */
+/* Approved table refresh, 2026-10-23; rev40 (2026-11-17) gives the table back its contrast:
+   lit felt, warm rail, solid pips, a larger hero hand, readable positions and colored actions.
+   The game and server protocol are unchanged. */
 :root {
+  --felt-lit: #2d7a5b;
+  --rail-wood: #3a281c;
+  --rail-hi: #6e5038;
+  --back-a: #742431;
+  --back-b: #5f1c27;
+  --fold-strong: #8f3434;
+  --fold-edge: #a84a4a;
+  --fold-text: #fbecea;
+  --call-strong: #2d7350;
+  --call-edge: #3f8a63;
+  --call-text: #f1f7f2;
+  --bet-bg: #241d10;
+  --gold-soft: #dbc18a80;
   --surface: #151d1b;
   --surface-raised: #202c27;
   --surface-inset: #101914;
@@ -71,35 +86,44 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
 
 /* Felt and cards. Percent-based seats surround the board; all game variants use it. */
 .table-wrap { flex: 1; height: auto; min-height: 580px; padding: 64px 90px 78px; }
-.table { flex: none; width: min(68vw, 940px); height: 450px; border: 12px solid var(--rail); outline: 1px solid var(--rail-edge); background: var(--felt-dark); box-shadow: inset 0 0 70px var(--shadow), 0 18px 38px var(--shadow); }
+.table { flex: none; width: min(70vw, 980px); height: 480px; border: 14px solid var(--rail-wood); outline: 1px solid #0007;
+  background: radial-gradient(ellipse 72% 68% at 50% 44%, var(--felt-lit) 0%, var(--felt) 45%, var(--felt-dark) 100%);
+  box-shadow: inset 0 0 0 1px #0005, inset 0 10px 50px #0006, 0 0 0 1px var(--rail-hi), 0 20px 44px var(--shadow-deep); }
 .table::before { content: ''; position: absolute; inset: 14px; border: 1px solid var(--felt-line); border-radius: inherit; pointer-events: none; }
 .board { top: 45%; max-width: 75%; }
 .community { min-height: 0; }
-.card { width: 78px; height: 108px; background: var(--paper); color: var(--ink); border-radius: 6px; box-shadow: 0 3px 5px var(--shadow); flex: none; }
+.card { width: 84px; height: 118px; background: var(--paper); color: var(--ink); border-radius: 7px; box-shadow: 0 2px 6px var(--shadow-deep); flex: none; }
 .card.small { width: 54px; height: 76px; border-radius: 5px; }
-.card .pip { opacity: .14; font-size: 52px; }
-.card.small .pip { font-size: 34px; }
+.card .pip { opacity: .9; font-size: 46px; }
+.card.small .pip { font-size: 26px; }
 .card.small .corner-top .r, .card.small .corner-bottom .r { font-size: 18px; }
 .card.red { color: var(--red); }
-.card.back { background: var(--surface-raised); border: 3px solid var(--paper); }
-.card.back::after { content: '♠'; position: absolute; inset: 4px; display: grid; place-items: center; border: 1px solid var(--rail-edge); color: var(--gold); font-family: var(--display-font); font-size: 28px; }
-.card.placeholder { background: var(--felt-line); box-shadow: none; border: 1px dashed var(--rail-edge); }
+.card.back { background: repeating-linear-gradient(135deg, var(--back-a) 0 4px, var(--back-b) 4px 8px); border: 3px solid var(--paper); }
+.card.back::after { content: ''; position: absolute; inset: 3px; border: 1px solid #fff4; border-radius: 3px; }
+.card.placeholder { background: #ffffff0d; box-shadow: none; border: 1px dashed #ffffff2e; }
 .board-tag { background: var(--gold); color: var(--ink); }
 .seat { width: 128px; }
 .seat .player-cards { min-height: 76px; gap: 5px; }
 .player-cards.four .card.small:not(:last-child) { margin-right: -25px; }
+/* The hero's own hand is the most-read object on the screen. */
+.seat.me .player-cards { min-height: 100px; gap: 6px; }
+.seat.me .card.small { width: 72px; height: 100px; border-radius: 6px; }
+.seat.me .card.small .pip { font-size: 38px; }
+.seat.me .card.small .corner-top .r, .seat.me .card.small .corner-bottom .r { font-size: 22px; }
+.seat.me .card.small .corner-top .s, .seat.me .card.small .corner-bottom .s { font-size: 16px; }
+.seat.me .player-cards.four .card.small:not(:last-child) { margin-right: -34px; }
 .nameplate { background: var(--surface-inset); border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px 6px; }
 .nameplate .pname { color: var(--text); font-size: 12px; font-weight: 500; }
 .nameplate .pchips { font-family: var(--number-font); font-size: 20px; font-weight: 500; color: var(--text); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .seat.me .nameplate { background: var(--surface-raised); }
 .seat.me { margin-top: 16px; }
-.seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 0 2px var(--felt-dark), 0 0 0 3px var(--gold); }
+.seat.active .nameplate { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold), 0 6px 16px var(--shadow-deep); }
 .seat.active .pchips { color: var(--gold); }
 .seat.folded { opacity: .43; }
 .seat.disconnected .nameplate { border-color: var(--gold); box-shadow: none; }
-.pos-chip { background: transparent; color: var(--muted); padding: 1px 0; margin-right: 7px; font-size: 9px; font-weight: 500; }
+.pos-chip { background: var(--surface-hover); color: var(--text); padding: 1px 5px; border-radius: 3px; margin-right: 6px; font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
 .dealer-btn { background: var(--paper); color: var(--ink); width: 16px; height: 16px; line-height: 16px; font-size: 9px; margin-left: 7px; }
-.seat .pbet:not(:empty) { border: none; background: var(--surface-inset); color: var(--gold); font-family: var(--number-font); font-size: 14px; border-radius: 10px; padding: 2px 12px; box-shadow: none; }
+.seat .pbet:not(:empty) { border: 1px solid var(--gold-soft); background: var(--bet-bg); color: var(--gold); font-family: var(--number-font); font-size: 14px; border-radius: 10px; padding: 2px 12px; box-shadow: 0 2px 5px var(--shadow); }
 .seat .paction { color: var(--muted); margin-top: 3px; font-size: 10px; }
 .winner-badge, .rp-win, .board-table .net-pos { color: var(--success); }
 .board-table .net-neg, .turn-timer.urgent { color: var(--danger); }
@@ -108,7 +132,7 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
 .pot-caption { font-size: 11px; color: var(--muted); font-family: var(--body-font); white-space: nowrap; }
 .status { color: var(--gold); font-size: 12px; margin-top: 5px; max-width: 450px; line-height: 1.5; }
 .turn-timer { font-family: var(--number-font); font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 5px; }
-.turn-bar { height: 3px; width: 110px; background: var(--surface-inset); margin-top: 7px; }
+.turn-bar { height: 4px; width: 150px; border-radius: 2px; background: #0004; margin-top: 7px; }
 .turn-bar-fill { background: var(--gold); }
 .turn-bar-fill.urgent { background: var(--danger); }
 .double-board .board { top: 49%; }
@@ -121,8 +145,8 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
 .action-bar { padding: 9px 6px; gap: 18px; }
 .primary-actions { display: flex; gap: 8px; }
 .act { border-radius: 6px; padding: 14px 24px; font-size: 14px; font-weight: 600; min-height: 48px; }
-.act.fold { background: var(--fold); color: var(--muted); border: 1px solid var(--line); }
-.act.check, .act.call { background: var(--call); color: var(--text); border: 1px solid var(--rail-edge); }
+.act.fold { background: var(--fold-strong); color: var(--fold-text); border: 1px solid var(--fold-edge); }
+.act.check, .act.call { background: var(--call-strong); color: var(--call-text); border: 1px solid var(--call-edge); }
 .act.raise { background: var(--gold); color: var(--ink); }
 .act.raise:hover:not(:disabled), #join-btn:hover { background: var(--gold-hover); }
 .act.fold:hover:not(:disabled), .act.check:hover:not(:disabled), .act.call:hover:not(:disabled) { filter: brightness(1.15); }
@@ -147,11 +171,11 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
 .panel-heading { padding: 4px 12px 5px; font-size: 12px; color: var(--text); }
 .panel-handle { background: var(--surface-inset); }
 .panel-handle .grip { background: var(--rail-edge); }
-.log-body, .chat-messages { color: var(--muted); font-size: 11px; line-height: 1.8; }
+.log-body, .chat-messages { color: var(--muted); font-size: 12px; line-height: 1.7; }
 .chat-messages .cname { color: var(--gold); font-weight: 500; }
 .chat-form { border-top-color: var(--line); }
-.chat-form input { min-width: 0; width: 100%; background: var(--surface-inset); color: var(--text); font-size: 11px; }
-.chat-form button { background: var(--surface-raised); color: var(--gold); font-size: 11px; font-weight: 400; }
+.chat-form input { min-width: 0; width: 100%; background: var(--surface-inset); color: var(--text); font-size: 12px; }
+.chat-form button { background: var(--surface-raised); color: var(--gold); font-size: 12px; font-weight: 400; }
 
 /* Settings, records and replay share the approved palette, retaining every control. */
 .modal { background: var(--shadow-deep); }
@@ -221,7 +245,20 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
   .card.small .corner-top .s, .card.small .corner-bottom .s { font-size: 11px; }
   .card.small .pip { font-size: 22px; }
   .card.back { border-width: 2px; }
-  .card.back::after { inset: 2px; font-size: 18px; }
+  .card.back::after { inset: 2px; }
+  /* Small cards keep a faint pip so it never covers the corner index. */
+  .card .pip, .card.small .pip { opacity: .16; }
+  .seat.me .player-cards { min-height: 60px; gap: 4px; }
+  .seat.me .card.small { width: 42px; height: 60px; border-radius: 5px; }
+  .seat.me .card.small .pip { font-size: 28px; }
+  .seat.me .card.small .corner-top .r, .seat.me .card.small .corner-bottom .r { font-size: 16px; }
+  .seat.me .card.small .corner-top .s, .seat.me .card.small .corner-bottom .s { font-size: 13px; }
+  /* Four hole cards on a phone stay compact so the fan clears both neighbouring seats. */
+  .seat.me .player-cards.four { min-height: 46px; }
+  .seat.me .player-cards.four .card.small { width: 32px; height: 46px; }
+  .seat.me .player-cards.four .card.small .corner-top .r { font-size: 14px; }
+  .seat.me .player-cards.four .card.small .corner-top .s { font-size: 12px; }
+  .seat.me .player-cards.four .card.small:not(:last-child) { margin-right: -13px; }
   .board-row { gap: 3px; }
   .board-row .card { width: clamp(26px, 8.2vw, 34px); height: clamp(38px, 12vw, 49px); }
   .board-row .card .corner-top, .board-row .card .corner-bottom { left: 3px; }
@@ -235,7 +272,7 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
   .player-cards.four .card.small:not(:last-child) { margin-right: -16px; }
   .nameplate { padding: 5px 3px; border-radius: 5px; }
   .nameplate .pname { font-size: 10px; }
-  .pos-chip { margin-right: 4px; font-size: 8px; }
+  .pos-chip { margin-right: 3px; padding: 0 3px; font-size: 8px; }
   .nameplate .pchips { font-size: 15px; margin-top: 3px; }
   .dealer-btn { width: 12px; height: 12px; line-height: 12px; font-size: 8px; margin-left: 4px; }
   .seat .paction { font-size: 9px; margin-top: 2px; }
@@ -244,7 +281,7 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
   .pot-caption { font-size: 9px; }
   .status { font-size: 11px; margin-top: 2px; max-width: 215px; }
   .turn-timer { font-size: 11px; margin-top: 3px; }
-  .turn-bar { width: 78px; margin-top: 5px; }
+  .turn-bar { width: 88px; margin-top: 5px; }
   .double-board .board { top: 48%; }
   .double-board .community { gap: 5px; }
   .double-board .status { font-size: 10px; }
