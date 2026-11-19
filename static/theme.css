@@ -83,6 +83,9 @@ button.small:hover { color: var(--text); background: var(--surface-raised); }
 button.small.accent { background: var(--gold); border-color: var(--gold); color: var(--ink); }
 a.small.trainer-link { border: 1px solid var(--line); border-radius: 5px; color: var(--gold); padding: 7px 10px; margin: 0 4px; }
 a.small.trainer-link:hover { background: var(--surface-raised); }
+a.small.journal-link { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 9px; border-radius: 5px; color: var(--muted); font-size: 12px; text-decoration: none; white-space: nowrap; }
+a.small.journal-link:hover { color: var(--text); background: var(--surface-raised); }
+#join-journal-link { margin-top: 8px; }
 
 /* Felt and cards. Percent-based seats surround the board; all game variants use it. */
 .table-wrap { flex: 1; height: auto; min-height: 580px; padding: 64px 90px 78px; }
@@ -232,7 +235,7 @@ a.small.trainer-link:hover { background: var(--surface-raised); }
   #phase-label { font-size: 10px; padding-left: 8px; }
   #tourney-label { width: auto; }
   .table-nav { margin: 0; width: 100%; gap: 3px; justify-content: flex-start; }
-  .table-nav button.small, a.small.trainer-link { font-size: 11px; padding: 7px 8px; min-height: 34px; }
+  .table-nav button.small, a.small.trainer-link, a.small.journal-link { font-size: 11px; padding: 7px 8px; min-height: 34px; }
   a.small.trainer-link { margin: 0; }
   .table-wrap { padding: 46px 22px 58px; flex: 1; min-height: 460px; height: auto; }
   .table { width: calc(100vw - 62px); height: 350px; border-width: 8px; border-radius: 130px; }

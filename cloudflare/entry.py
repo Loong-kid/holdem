@@ -13,6 +13,7 @@ from pyodide.ffi import create_proxy
 
 from poker.room import Room, APP_VERSION
 from repository import HandRepository
+import journal
 from chart_data import CHART_DB
 from gto.charts import ChartProvider
 from gto.score import build_report
@@ -34,6 +35,11 @@ class Default(WorkerEntrypoint):
     async def fetch(self, request):
         parsed = urlparse(request.url)
         path = parsed.path
+        if path.startswith("/journal/api/"):
+            body = await request.text() if request.method == "PUT" else ""
+            status, payload = await journal.handle(request.method, path, request.headers.get("X-Journal-Code"),
+                                                   body, self.env.DB)
+            return json_response(payload, status)
         if request.method != "GET":
             return json_response({"error": "Method not allowed"}, 405)
         try:

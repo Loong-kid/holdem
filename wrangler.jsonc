@@ -7,7 +7,7 @@
   "assets": {
     "directory": ".cloudflare-assets",
     "binding": "ASSETS",
-    "run_worker_first": ["/ws", "/health", "/keepalive", "/export", "/gto", "/gto_charts"]
+    "run_worker_first": ["/ws", "/health", "/keepalive", "/export", "/gto", "/gto_charts", "/journal/api/*"]
   },
   "durable_objects": { "bindings": [{ "name": "ROOMS", "class_name": "PokerRoom" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PokerRoom"] }],

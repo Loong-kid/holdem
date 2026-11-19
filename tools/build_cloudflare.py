@@ -47,7 +47,10 @@ def main():
         target = public / "trainer" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         copy_if_changed(ROOT / "trainer" / name, target)
-    (public / "_redirects").write_text("/trainer /trainer/ 301\n", encoding="utf-8")
+    for source in (ROOT / "journal").glob("*"):
+        if source.suffix in (".html", ".js", ".css"):
+            copy_if_changed(source, public / "journal" / source.name)
+    (public / "_redirects").write_text("/trainer /trainer/ 301\n/journal /journal/ 301\n", encoding="utf-8")
     (public / "_headers").write_text(
         "/*\n  Cache-Control: no-cache, must-revalidate\n  X-Content-Type-Options: nosniff\n",
         encoding="utf-8")
