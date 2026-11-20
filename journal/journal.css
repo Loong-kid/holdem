@@ -69,6 +69,13 @@ a { color: var(--gold); -webkit-tap-highlight-color: transparent; }
 .form-owner { font-size: 13px; margin: 0 0 10px; }
 .form-owner b { color: var(--gold); }
 .seg.mode { margin-bottom: 16px; }
+.share-btn { margin: 0 0 12px; }
+.share-text {
+  margin: 0 0 12px; padding: 14px; max-height: 52dvh; overflow: auto; border-radius: 10px;
+  background: var(--surface-inset); border: 1px solid var(--line); color: var(--text);
+  font-family: Consolas, 'D2Coding', 'Malgun Gothic', monospace; font-size: 14px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text;
+}
 
 .view { max-width: 560px; margin: 0 auto; padding: 14px 16px 24px; }
 

@@ -754,11 +754,108 @@ function detailView(name, id) {
     ${h.note ? `<p class="d-note">${esc(h.note)}</p>` : ""}
   </section>
   ${hasActions ? replayPanel(h, name) : `<p class="muted center">액션을 넣지 않은 핸드예요.${mine ? " 수정에서 액션을 넣으면 재생할 수 있어요." : ""}</p>`}
+  <button type="button" class="btn wide share-btn" data-act="share-text" data-book="${esc(name)}" data-v="${esc(h.id)}">텍스트로 공유</button>
   ${mine ? `<div class="detail-actions">
     <button type="button" class="btn primary wide-row" data-act="same-table" data-v="${esc(h.id)}">같은 테이블로 새 핸드</button>
     <a class="btn" href="#/edit/${enc(h.id)}">수정</a>
     <button type="button" class="btn danger" data-act="delete" data-v="${esc(h.id)}">삭제</button>
   </div>` : ""}`;
+}
+
+/* ---------- plain-text export for chat apps ----------
+   Hero QQ BB 300/500 (6max)        preflop sizes carry bb in brackets, later streets plain chips;
+   flop QKKr [pot 18500]            r = rainbow, tt = two-tone, m = monotone;
+   turn (QKKr)A [pot 18500]         earlier board in brackets;
+   river (QKKA)5 [pot 37500, no flush]                                                         */
+const plain = (n) => String(Math.round(n * 100) / 100);
+
+function handCode(cards) {
+  const cs = (cards || []).filter(Boolean);
+  if (cs.length !== 2) return "";
+  const [a, b] = cs.slice().sort((x, y) => RANKS.indexOf(x[0]) - RANKS.indexOf(y[0]));
+  return a[0] === b[0] ? a[0] + b[0] : a[0] + b[0] + (a[1] === b[1] ? "s" : "o");
+}
+
+function handText(h, name) {
+  const { frames } = simulate(h, "river");
+  const who = (pos) => (pos === h.hero.pos ? "hero" : pos);
+  const ranks = (cs) => cs.map((c) => c[0]).join("");
+  const suitsMax = (cs) => Math.max(0, ...Object.values(cs.reduce((m, c) => ((m[c[1]] = (m[c[1]] || 0) + 1), m), {})));
+  const flop = h.board.slice(0, 3), turn = h.board[3], river = h.board[4];
+  const texture = (cs) => ({ 3: "r", 2: "tt", 1: "m" }[new Set(cs.map((c) => c[1])).size] || "");
+  const lines = [`Hero ${handCode(h.hero.cards) ? handCode(h.hero.cards) + " " : ""}${h.hero.pos} ${plain(h.sb)}/${plain(h.bb)} (${h.table_size}max)`];
+  const stacks = players(h).filter((p) => p.stack != null)
+    .map((p) => `${who(p.pos)} ${plain(p.stack)}${h.bb > 0 ? `(${fmt(p.stack / h.bb)}bb)` : ""}`);
+  if (stacks.length) lines.push("Stacks " + stacks.join(", "));
+
+  let fi = 0;
+  for (const [street] of STREETS) {
+    const acts = h.actions[street] || [];
+    const dealt = street === "pre" || h.board.slice(0, BOARD_COUNT[street]).every(Boolean);
+    if (!acts.length && !dealt) break;
+    // the frame that opens this street carries the pot before anyone acts
+    while (fi < frames.length && !(frames[fi].street === street && frames[fi].actor == null)) fi++;
+    const pot = fi < frames.length ? frames[fi].pot : null;
+    const potTag = (extra) => (pot != null ? ` [pot ${plain(pot)}${extra || ""}]` : "");
+    lines.push("");
+    if (street === "pre") lines.push("preflop");
+    else if (street === "flop") lines.push(dealt ? `flop ${ranks(flop)}${texture(flop)}${potTag()}` : `flop${potTag()}`);
+    else if (street === "turn") lines.push(dealt ? `turn (${ranks(flop)}${texture(flop)})${turn[0]}${potTag()}` : `turn${potTag()}`);
+    else lines.push(dealt ? `river (${ranks([...flop, turn])})${river[0]}${potTag(suitsMax(h.board) >= 3 ? ", flush possible" : ", no flush")}` : `river${potTag()}`);
+    let raises = street === "pre" ? 1 : 0;   // the big blind counts as the first bet preflop
+    for (const a of acts) {
+      const prev = frames[fi];
+      fi++;
+      const f = frames[fi];
+      if (!f || f.actor !== a.pos) break;
+      const before = Math.max(0, ...prev.seats.map((s) => s.bet));
+      const total = f.seats.find((s) => s.pos === a.pos).bet;
+      const size = plain(total) + (street === "pre" && h.bb > 0 ? `(${fmt(total / h.bb)}bb)` : "");
+      let text;
+      if (a.act === "fold" || a.act === "check" || a.act === "call") text = a.act;
+      else if (a.act === "allin") { if (total > before) raises++; text = `${size} All in`; }
+      else {
+        raises++;
+        text = `${size} ${street === "pre" ? (raises === 2 ? "open" : `${raises}bet`) : raises === 1 ? "bet" : "raise"}`;
+      }
+      lines.push(`${who(a.pos)} ${text}`);
+    }
+  }
+  const shown = h.villains.filter((v) => handCode(v.cards));
+  if (shown.length) { lines.push(""); shown.forEach((v) => lines.push(`${v.pos} shows ${handCode(v.cards)}`)); }
+  if (h.result != null) {
+    lines.push("", `Result hero ${h.result > 0 ? "+" : ""}${plain(h.result)}${h.bb > 0 ? ` (${h.result > 0 ? "+" : ""}${fmt(h.result / h.bb)}bb)` : ""}`);
+  }
+  lines.push("", `리플레이 ${location.origin}/journal/${handHash(name, h.id)}`);
+  return lines.join("\n");
+}
+
+function openShareSheet(name, id) {
+  const h = handsOf(name).find((x) => x.id === id);
+  if (!h) return;
+  picker = null;
+  const text = handText(h, name);
+  $("#sheet").innerHTML = `
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <div class="sheet-head"><h2 id="sheet-title">텍스트로 공유</h2><button type="button" class="link" data-act="close-sheet">닫기</button></div>
+    <pre class="share-text" id="share-text">${esc(text)}</pre>
+    <div class="sheet-foot${navigator.share ? " two" : ""}">
+      <button type="button" class="btn${navigator.share ? "" : " primary"}" data-act="copy-text">복사</button>
+      ${navigator.share ? `<button type="button" class="btn primary" data-act="native-share">공유</button>` : ""}
+    </div>`;
+  $("#sheet").hidden = false;
+  $("#sheet-backdrop").hidden = false;
+  document.body.classList.add("sheet-open");
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast("복사했어요"); return; } catch { /* fall back below */ }
+  const area = document.createElement("textarea");
+  area.value = text; area.setAttribute("readonly", ""); area.style.position = "fixed"; area.style.opacity = "0";
+  document.body.appendChild(area); area.select();
+  const ok = document.execCommand("copy");
+  area.remove();
+  toast(ok ? "복사했어요" : "복사가 안 돼요. 글을 길게 눌러 직접 복사해 주세요");
 }
 
 function replayPanel(h, name) {
@@ -922,6 +1019,9 @@ document.addEventListener("click", (e) => {
   const act = b.dataset.act, v = b.dataset.v;
   switch (act) {
     case "login-mode": loginMode = v; renderView(); break;
+    case "share-text": openShareSheet(b.dataset.book, v); break;
+    case "copy-text": copyText($("#share-text").textContent); break;
+    case "native-share": navigator.share({ text: $("#share-text").textContent }).catch(() => { /* closed by the user */ }); break;
     case "logout":
       if (Object.keys(outbox).length && !confirm("아직 서버에 못 올린 핸드가 있어요. 로그아웃하면 그 핸드는 사라져요. 계속할까요?")) break;
       me = null; outbox = {}; draft = null; editing = null; drop(KEY.me); drop(KEY.draft); persist(); closeSheet(); lastError = "";

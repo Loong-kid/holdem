@@ -125,6 +125,38 @@ with sync_playwright() as p:
         page.locator('.replay [data-act="rp"].primary').click()
     assert "BB" in page.locator(".rp-caption").inner_text()
 
+    # Plain-text export of the hand just recorded.
+    page.locator('[data-act="share-text"]').click()
+    text = page.locator("#share-text").inner_text()
+    want = [
+        "Hero AKo BTN 1/2 (6max)", "Stacks hero 400(200bb), BB 250(125bb)", "preflop", "hero 6(3bb) open", "BB call",
+        "flop K72r [pot 13]", "BB check", "hero 8 bet", "BB call", "turn (K72r)9 [pot 29]", "hero 20 bet", "BB fold",
+        "Result hero +15 (+7.5bb)",
+    ]
+    for line in want:
+        assert line in text.splitlines(), (line, text)
+    assert f"/journal/#/b/{book}/h/" in text
+    page.screenshot(path=str(shots / "journal_share.png"))
+    page.locator('#sheet [data-act="close-sheet"]').click()
+    # The sample from the request: squeeze from the BB, check-check flop, all-in on the river.
+    sample = page.evaluate("""() => handText({
+        id: 'sample01', played_at: '2026-11-20', table_size: 8, sb: 300, bb: 500,
+        hero: {pos: 'BB', stack: 49500, cards: ['Qh', 'Qd']},
+        villains: [{pos: 'UTG+1', cards: []}, {pos: 'HJ', cards: []}, {pos: 'CO', cards: []}, {pos: 'SB', stack: 80000, cards: []}],
+        board: ['Qs', 'Kc', 'Kd', 'Ah', '5c'],
+        actions: {
+          pre: [{pos: 'UTG+1', act: 'raise', to: 1000}, {pos: 'HJ', act: 'call'}, {pos: 'CO', act: 'call'}, {pos: 'SB', act: 'call'},
+                {pos: 'BB', act: 'raise', to: 7500}, {pos: 'UTG+1', act: 'fold'}, {pos: 'HJ', act: 'fold'}, {pos: 'CO', act: 'fold'},
+                {pos: 'SB', act: 'call'}],
+          flop: [{pos: 'SB', act: 'check'}, {pos: 'BB', act: 'check'}],
+          turn: [{pos: 'SB', act: 'check'}, {pos: 'BB', act: 'bet', to: 9500}, {pos: 'SB', act: 'call'}],
+          river: [{pos: 'SB', act: 'bet', to: 17500}, {pos: 'BB', act: 'allin'}, {pos: 'SB', act: 'call'}]},
+        result: null, tags: [], note: ''}, 'doil')""")
+    for line in ["Hero QQ BB 300/500 (8max)", "UTG+1 1000(2bb) open", "HJ call", "hero 7500(15bb) 3bet",
+                 "flop QKKr [pot 18000]", "turn (QKKr)A [pot 18000]", "hero 9500 bet",
+                 "river (QKKA)5 [pot 37000, no flush]", "SB 17500 bet", "hero 32500 All in", "SB call"]:
+        assert line in sample.splitlines(), (line, sample)
+
     # Hand 2 from the same table, no actions, a loss; saved while offline then synced.
     page.locator('[data-act="same-table"]').click()
     assert page.locator('[data-f="session"]').input_value() == "검증 세션"
