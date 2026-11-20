@@ -81,45 +81,85 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             journal.validate_hand(sample(), "other-id")
 
-    def test_owner_key_needs_a_real_code(self):
-        for code in (None, "", "abc", "has space", "대문자"):
-            with self.assertRaises(journal.AuthError):
-                journal.owner_key(code)
-        self.assertEqual(journal.owner_key(" River-Ace-7k "), journal.owner_key("river-ace-7k"))
-        self.assertNotIn("river", journal.owner_key("river-ace-7k"))
+    def test_book_names(self):
+        for raw in (None, "", "a", "has space", "x" * 21, "doil!", "%20doil%20x"):
+            with self.assertRaises(journal.ApiError):
+                journal.book_name(raw)
+        self.assertEqual(journal.book_name(" DoIl "), "doil")
+        self.assertEqual(journal.book_name("%EB%8F%84%EC%9D%BC"), "도일")   # URL-encoded Korean
+        self.assertEqual(journal.book_name("river_ace-7"), "river_ace-7")
+
+
+BOOK = "/journal/api/books"
+
+
+async def make_book(db, name="doil", pin="1234"):
+    return await journal.handle("POST", BOOK, None, json.dumps({"name": name, "pin": pin}), db)
 
 
 class ApiTests(unittest.IsolatedAsyncioTestCase):
-    async def test_round_trip_is_scoped_by_code(self):
+    async def test_books_are_public_and_writes_need_the_pin(self):
         db = SQLiteBinding()
-        status, body = await journal.handle("PUT", "/journal/api/hands/hand0001", "river-ace-7k", json.dumps(sample()), db)
+        status, body = await make_book(db)
+        self.assertEqual(status, 201, body)
+        self.assertEqual(body["book"]["name"], "doil")
+        self.assertNotIn("1234", tuple(db.connection.execute("SELECT pin_salt, pin_hash FROM journal_books").fetchone()))
+        self.assertEqual((await make_book(db, "DOIL", "9999"))[0], 409)        # name taken, case-insensitive
+
+        hand_url = BOOK + "/doil/hands/hand0001"
+        status, body = await journal.handle("PUT", hand_url, "1234", json.dumps(sample()), db)
         self.assertEqual(status, 200, body)
         created = body["hand"]["created_at"]
-        status, body = await journal.handle("GET", "/journal/api/hands", "river-ace-7k", "", db)
+        self.assertEqual((await journal.handle("PUT", hand_url, "0000", json.dumps(sample()), db))[0], 401)
+        self.assertEqual((await journal.handle("PUT", hand_url, None, json.dumps(sample()), db))[0], 401)
+
+        # anyone reads, no pin needed
+        status, body = await journal.handle("GET", BOOK + "/doil/hands", None, "", db)
         self.assertEqual([h["id"] for h in body["hands"]], ["hand0001"])
-        self.assertEqual(body["hands"][0]["hero"]["cards"], ["As", "Kd"])
-        status, other = await journal.handle("GET", "/journal/api/hands", "someone-else", "", db)
-        self.assertEqual(other["hands"], [])
-        # update keeps created_at, replaces the content
-        status, body = await journal.handle("PUT", "/journal/api/hands/hand0001", "river-ace-7k",
-                                            json.dumps(sample(result=-40, created_at=created)), db)
-        self.assertEqual(body["hand"]["result"], -40)
-        self.assertEqual(body["hand"]["created_at"], created)
-        rows = db.connection.execute("SELECT count(*) FROM journal_hands").fetchone()[0]
-        self.assertEqual(rows, 1)
-        status, _ = await journal.handle("DELETE", "/journal/api/hands/hand0001", "someone-else", "", db)
-        self.assertEqual(db.connection.execute("SELECT count(*) FROM journal_hands").fetchone()[0], 1)
-        status, _ = await journal.handle("DELETE", "/journal/api/hands/hand0001", "river-ace-7k", "", db)
-        self.assertEqual(db.connection.execute("SELECT count(*) FROM journal_hands").fetchone()[0], 0)
+        self.assertEqual(body["book"]["hands"], 1)
+        status, body = await journal.handle("GET", BOOK, None, "", db)
+        self.assertEqual([(b["name"], b["hands"]) for b in body["books"]], [("doil", 1)])
+
+        # update keeps created_at; another book with the same hand id stays separate
+        status, body = await journal.handle("PUT", hand_url, "1234", json.dumps(sample(result=-40, created_at=created)), db)
+        self.assertEqual((body["hand"]["result"], body["hand"]["created_at"]), (-40, created))
+        await make_book(db, "도일", "한글비번")
+        status, _ = await journal.handle("PUT", BOOK + "/%EB%8F%84%EC%9D%BC/hands/hand0001", "%ED%95%9C%EA%B8%80%EB%B9%84%EB%B2%88",
+                                         json.dumps(sample()), db)
+        self.assertEqual(status, 200)
+        self.assertEqual(db.connection.execute("SELECT count(*) FROM journal_hands").fetchone()[0], 2)
+
+        self.assertEqual((await journal.handle("DELETE", hand_url, "0000", "", db))[0], 401)
+        self.assertEqual((await journal.handle("DELETE", hand_url, "1234", "", db))[0], 200)
+        self.assertEqual(db.connection.execute("SELECT count(*) FROM journal_hands WHERE owner='doil'").fetchone()[0], 0)
+
+    async def test_login_locks_after_repeated_misses(self):
+        db = SQLiteBinding()
+        await make_book(db)
+        login = BOOK + "/doil/login"
+        self.assertEqual((await journal.handle("POST", login, "1234", "", db))[0], 200)
+        for _ in range(journal.LOCK_AFTER - 1):
+            self.assertEqual((await journal.handle("POST", login, "nope", "", db))[0], 401)
+        self.assertEqual((await journal.handle("POST", login, "nope", "", db))[0], 423)
+        self.assertEqual((await journal.handle("POST", login, "1234", "", db))[0], 423)   # even the right pin waits
+        db.connection.execute("UPDATE journal_books SET locked_until='2000-01-01T00:00:00Z'")
+        self.assertEqual((await journal.handle("POST", login, "1234", "", db))[0], 200)
+        self.assertEqual((await journal.handle("POST", BOOK + "/nobody/login", "1234", "", db))[0], 404)
 
     async def test_errors(self):
         db = SQLiteBinding()
-        self.assertEqual((await journal.handle("GET", "/journal/api/hands", None, "", db))[0], 401)
-        self.assertEqual((await journal.handle("PUT", "/journal/api/hands/hand0001", "river-ace-7k", "{not json", db))[0], 400)
-        self.assertEqual((await journal.handle("PUT", "/journal/api/hands/bad id", "river-ace-7k", "{}", db))[0], 400)
-        self.assertEqual((await journal.handle("POST", "/journal/api/hands/hand0001", "river-ace-7k", "{}", db))[0], 405)
-        self.assertEqual((await journal.handle("PUT", "/journal/api/hands/hand0001", "river-ace-7k", "x" * 40000, db))[0], 413)
-        self.assertEqual((await journal.handle("GET", "/journal/api/other", "river-ace-7k", "", db))[0], 404)
+        await make_book(db)
+        hand_url = BOOK + "/doil/hands/hand0001"
+        self.assertEqual((await make_book(db, "x", "1234"))[0], 400)
+        self.assertEqual((await make_book(db, "okname", "12"))[0], 400)
+        self.assertEqual((await journal.handle("POST", BOOK, None, "{not json", db))[0], 400)
+        self.assertEqual((await journal.handle("PUT", hand_url, "1234", "{not json", db))[0], 400)
+        self.assertEqual((await journal.handle("PUT", hand_url, "1234", json.dumps(sample(bb=0)), db))[0], 400)
+        self.assertEqual((await journal.handle("PUT", BOOK + "/doil/hands/bad id", "1234", "{}", db))[0], 400)
+        self.assertEqual((await journal.handle("POST", hand_url, "1234", "{}", db))[0], 405)
+        self.assertEqual((await journal.handle("PUT", hand_url, "1234", "x" * 40000, db))[0], 413)
+        self.assertEqual((await journal.handle("GET", BOOK + "/nobody/hands", None, "", db))[0], 404)
+        self.assertEqual((await journal.handle("GET", "/journal/api/hands", None, "", db))[0], 404)
 
 
 if __name__ == "__main__":

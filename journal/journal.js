@@ -1,6 +1,7 @@
 "use strict";
 /* Hand journal: record live hands on a phone, review them anywhere.
-   Data lives in D1 under a personal code; this page keeps a cache, the unsent queue and the open draft locally. */
+   Hands live in D1 in named books that anyone can read; writing needs the book's password, which this
+   device remembers after one login. The page keeps a cache, the unsent queue and the open draft locally. */
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -18,23 +19,37 @@ const STREETS = [["pre", "프리플랍"], ["flop", "플랍"], ["turn", "턴"], [
 const STREET_NAME = Object.fromEntries(STREETS);
 const BOARD_COUNT = { pre: 0, flop: 3, turn: 4, river: 5 };
 const PRESET_TAGS = ["밸류", "블러프", "히어로콜", "쿨러", "배드빗", "실수", "3벳팟", "멀티웨이"];
-const KEY = { code: "journal.code", cache: "journal.cache", outbox: "journal.outbox", draft: "journal.draft", prefs: "journal.prefs" };
+const KEY = { me: "journal.me", cache: "journal.bookcache", outbox: "journal.outbox2", draft: "journal.draft", prefs: "journal.prefs" };
+const NAME_RE = /^[0-9a-z가-힣_-]{2,20}$/;
+const NO_FILTERS = { period: "all", session: "", pos: "", tag: "", result: "" };
 
 function load(key, fallback) { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } }
 function store(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode: the page still works for this visit */ } }
 function drop(key) { try { localStorage.removeItem(key); } catch { /* ignore */ } }
+["journal.code", "journal.cache", "journal.outbox"].forEach(drop); // the private-code version kept these
 
-let code = load(KEY.code, "");
-let hands = load(KEY.cache, []);
-let outbox = load(KEY.outbox, {});
+let me = load(KEY.me, null);          // { name, pin } of the book this device writes to
+let cache = load(KEY.cache, {});      // book name -> hands as last fetched
+let outbox = load(KEY.outbox, {});    // my unsent writes: hand id -> { op, hand }
+let books = null;                     // every book, from the server
+let bookMeta = {};                    // name -> server summary, or null when the book does not exist
+let viewing = null;                   // book whose list is open (filters reset when it changes)
+let loginMode = "enter";
 let draft = null;          // the hand being entered or edited
 let editing = null;        // id when editing an existing hand
 let ui = { sign: 1, actStreet: "pre", pending: null, amount: "" };
-let filters = { period: "all", session: "", pos: "", tag: "", result: "" };
+let filters = { ...NO_FILTERS };
 let picker = null;
 let replayIndex = 0;
 let syncing = false;
+let syncAgain = false;
 let lastError = "";
+
+const enc = encodeURIComponent;
+const dec = (s) => { try { return decodeURIComponent(s); } catch { return s; } };
+const isMine = (name) => !!me && me.name === name;
+const bookHash = (name) => "#/b/" + enc(name);
+const handHash = (name, id) => bookHash(name) + "/h/" + enc(id);
 
 /* ---------- small helpers ---------- */
 const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
@@ -150,20 +165,27 @@ function nextActor(h, street, live) {
 function handOver(live) { return Object.values(live.st).filter((s) => !s.folded).length <= 1; }
 
 /* ---------- storage + sync ---------- */
-function persist() { store(KEY.cache, hands); store(KEY.outbox, outbox); }
+function persist() { store(KEY.cache, cache); store(KEY.outbox, outbox); }
 
-function visibleHands() {
-  const map = new Map(hands.map((h) => [h.id, h]));
-  for (const [id, job] of Object.entries(outbox)) {
-    if (job.op === "delete") map.delete(id); else map.set(id, job.hand);
+const byRecent = (a, b) => (b.played_at + (b.updated_at || b.created_at || "")).localeCompare(a.played_at + (a.updated_at || a.created_at || ""));
+
+/* A book's hands; for my own book the unsent writes on this device are laid over the server copy. */
+function handsOf(name) {
+  const map = new Map((cache[name] || []).map((h) => [h.id, h]));
+  if (isMine(name)) {
+    for (const [id, job] of Object.entries(outbox)) {
+      if (job.op === "delete") map.delete(id); else map.set(id, job.hand);
+    }
   }
-  return [...map.values()].sort((a, b) => (b.played_at + (b.updated_at || b.created_at || "")).localeCompare(a.played_at + (a.updated_at || a.created_at || "")));
+  return [...map.values()].sort(byRecent);
 }
+const visibleHands = () => (me ? handsOf(me.name) : []);
 
-async function api(method, path, body) {
+async function api(method, path, body, pin) {
+  const headers = { "Content-Type": "application/json" };
+  if (pin != null) headers["X-Journal-Pin"] = enc(pin);
   const response = await fetch("/journal/api" + path, {
-    method, headers: { "Content-Type": "application/json", "X-Journal-Code": code },
-    body: body ? JSON.stringify(body) : undefined, cache: "no-store",
+    method, headers, body: body ? JSON.stringify(body) : undefined, cache: "no-store",
   });
   let data = {};
   try { data = await response.json(); } catch { /* empty */ }
@@ -175,43 +197,64 @@ function renderSync() {
   const el = $("#sync-state");
   const waiting = Object.keys(outbox).length;
   el.className = "sync-state" + (waiting ? " wait" : "") + (lastError ? " err" : "");
-  el.textContent = !code ? "" : syncing ? "올리는 중" : waiting ? `기기에 ${waiting}개 대기` : "저장됨";
+  el.textContent = me ? (syncing ? "올리는 중" : waiting ? `기기에 ${waiting}개 대기` : "저장됨") : (syncing ? "불러오는 중" : "");
   el.title = lastError || "";
 }
 
+/* Loads whatever the open screen shows: the directory, or one book's hands. */
+async function refreshView() {
+  const hash = location.hash || "#/";
+  const m = hash.match(/^#\/b\/([^/]+)/);
+  const name = m ? dec(m[1]) : /^#\/(new|edit)/.test(hash) && me ? me.name : null;
+  if (name) {
+    try {
+      const data = await api("GET", `/books/${enc(name)}/hands`);
+      cache[name] = data.hands;
+      bookMeta[name] = data.book;
+      persist();
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      bookMeta[name] = null;
+    }
+  } else if (!/^#\/login/.test(hash)) {
+    books = (await api("GET", "/books")).books;
+  }
+}
+
 async function sync() {
-  if (!code || syncing) return;
-  syncing = true; renderSync();
+  if (syncing) { syncAgain = true; return; }
+  syncing = true; syncAgain = false; renderSync();
   try {
-    for (const [id, job] of Object.entries(outbox)) {
-      try {
-        if (job.op === "delete") {
-          await api("DELETE", "/hands/" + id);
-          hands = hands.filter((h) => h.id !== id);
-        } else {
-          const result = await api("PUT", "/hands/" + id, job.hand);
-          hands = [result.hand, ...hands.filter((h) => h.id !== id)];
+    if (me) {
+      const base = `/books/${enc(me.name)}/hands/`;
+      for (const [id, job] of Object.entries(outbox)) {
+        try {
+          const mine = cache[me.name] || [];
+          if (job.op === "delete") {
+            await api("DELETE", base + enc(id), null, me.pin);
+            cache[me.name] = mine.filter((h) => h.id !== id);
+          } else {
+            const result = await api("PUT", base + enc(id), job.hand, me.pin);
+            cache[me.name] = [result.hand, ...mine.filter((h) => h.id !== id)];
+          }
+          delete outbox[id];
+          persist();
+          lastError = "";
+        } catch (error) {
+          if (error.status === 400 || error.status === 413) { job.error = error.message; persist(); lastError = error.message; continue; }
+          lastError = error.status ? error.message : "연결이 안 돼 기기에 보관 중";
+          break;
         }
-        delete outbox[id];
-        persist();
-        lastError = "";
-      } catch (error) {
-        if (error.status === 400 || error.status === 413) { job.error = error.message; persist(); lastError = error.message; continue; }
-        if (error.status === 401) { lastError = error.message; break; }
-        lastError = "연결이 안 돼 기기에 보관 중"; break;
       }
     }
-    if (!Object.keys(outbox).length) {
-      const data = await api("GET", "/hands");
-      hands = data.hands;
-      persist();
-      lastError = "";
-    }
+    await refreshView();
+    if (!Object.keys(outbox).length) lastError = "";
   } catch (error) {
     lastError = error.status ? error.message : "연결이 안 돼 기기에 보관 중";
   } finally {
     syncing = false; renderSync();
-    if (/^#\/(list|hand)/.test(location.hash)) route();
+    if (!/^#\/(new|edit|login)/.test(location.hash || "#/")) renderView();
+    if (syncAgain) sync();
   }
 }
 
@@ -242,41 +285,112 @@ function setTab(name) {
 }
 
 function route() {
-  const view = $("#view");
-  const hash = location.hash || "#/new";
-  $("#tabs").hidden = !code;
-  $("#code-btn").hidden = !code;
   closeSheet();
-  if (!code) { setTab(""); view.innerHTML = codeView(); return; }
-  let m;
-  if ((m = hash.match(/^#\/edit\/(.+)$/))) {
-    const hand = visibleHands().find((h) => h.id === m[1]);
-    if (!hand) { location.hash = "#/list"; return; }
-    if (editing !== hand.id) { editing = hand.id; draft = clone(hand); ui = { sign: (hand.result ?? 0) < 0 ? -1 : 1, actStreet: "pre", pending: null, amount: "" }; }
-    setTab("new"); renderForm(); return;
-  }
-  if ((m = hash.match(/^#\/hand\/(.+)$/))) { setTab("list"); view.innerHTML = detailView(m[1]); return; }
-  if (hash.startsWith("#/list")) { setTab("list"); view.innerHTML = listView(); return; }
-  if (editing) { editing = null; draft = null; }
-  if (!draft) draft = load(KEY.draft, null) || newDraft();
-  setTab("new");
-  renderForm();
+  renderView();
 }
 
-function codeView() {
+/* Draws the screen for the current hash without touching an open sheet (sync calls this too). */
+function renderView() {
+  const view = $("#view");
+  const hash = location.hash || "#/";
+  $("#me-btn").textContent = me ? me.name : "로그인";
+  let m;
+  if (hash === "#/mine") { location.replace(me ? bookHash(me.name) : "#/login"); return; }
+  if (hash === "#/login") { setTab("mine"); view.innerHTML = loginView(); return; }
+  if ((m = hash.match(/^#\/b\/([^/]+)\/h\/(.+)$/))) {
+    const name = dec(m[1]);
+    setTab(isMine(name) ? "mine" : "home"); view.innerHTML = detailView(name, dec(m[2])); return;
+  }
+  if ((m = hash.match(/^#\/b\/([^/]+)$/))) {
+    const name = dec(m[1]);
+    if (viewing !== name) { viewing = name; filters = { ...NO_FILTERS }; }
+    setTab(isMine(name) ? "mine" : "home"); view.innerHTML = bookView(name); return;
+  }
+  if (hash === "#/new" || hash.startsWith("#/edit/")) {
+    if (!me) { location.replace("#/login"); return; }
+    if ((m = hash.match(/^#\/edit\/(.+)$/))) {
+      const hand = visibleHands().find((h) => h.id === dec(m[1]));
+      if (!hand) { location.replace(bookHash(me.name)); return; }
+      if (editing !== hand.id) { editing = hand.id; draft = clone(hand); ui = { sign: (hand.result ?? 0) < 0 ? -1 : 1, actStreet: "pre", pending: null, amount: "" }; }
+      setTab("new"); renderForm(); return;
+    }
+    if (editing) { editing = null; draft = null; }
+    if (!draft) draft = load(KEY.draft, null) || newDraft();
+    setTab("new"); renderForm(); return;
+  }
+  setTab("home");
+  view.innerHTML = homeView();
+}
+
+function homeView() {
+  const mine = me
+    ? `<section class="panel me-card">
+        <div class="me-line"><span class="muted">내 기록장</span><b>${esc(me.name)}</b><span class="muted">${handsOf(me.name).length || (bookMeta[me.name]?.hands ?? 0)}핸드</span></div>
+        <div class="two-btn"><a class="btn" href="${bookHash(me.name)}">내 기록 보기</a><a class="btn primary" href="#/new">기록하기</a></div>
+      </section>`
+    : `<section class="panel me-card">
+        <h2>내 기록장</h2>
+        <p class="muted">이름과 비밀번호로 기록장을 만들면 핸드를 기록할 수 있어요. 보는 건 누구나 할 수 있어요.</p>
+        <a class="btn primary wide" href="#/login">기록장 만들기·들어가기</a>
+      </section>`;
+  const list = books == null
+    ? `<p class="muted center">${lastError ? esc(lastError) : "불러오는 중"}</p>`
+    : books.length ? `<ul class="book-list">${books.map(bookCard).join("")}</ul>` : `<p class="muted center">아직 만든 기록장이 없어요.</p>`;
+  return `${mine}<section class="panel"><h2>모든 기록장 ${books ? `<small>${books.length}개</small>` : ""}</h2>${list}</section>`;
+}
+
+function bookCard(b) {
+  return `<li><a class="bcard" href="${bookHash(b.name)}">
+    <span class="b-name">${esc(b.name)}${isMine(b.name) ? `<em>나</em>` : ""}</span>
+    <span class="b-meta">${b.hands}핸드${b.last_played ? ` · 최근 ${esc(b.last_played.slice(2).replace(/-/g, "."))}` : ""}</span>
+  </a></li>`;
+}
+
+function loginView() {
+  const create = loginMode === "create";
   return `<section class="panel codebox">
-    <h2>기록 코드</h2>
-    <p class="lead">기록 코드는 내 기록장의 열쇠예요. 폰과 PC에서 같은 코드를 넣으면 같은 기록이 보여요.</p>
-    <form id="code-form" class="code-form" autocomplete="off">
-      <label for="code-input">코드 입력</label>
-      <input id="code-input" name="code" inputmode="text" autocapitalize="none" spellcheck="false"
-        placeholder="예: river-7k2m-ace" minlength="6" maxlength="64" required />
-      <button class="btn primary" type="submit">기록장 열기</button>
+    <h2>${create ? "새 기록장 만들기" : "내 기록장 들어가기"}</h2>
+    <div class="seg mode">${chip("들어가기", `data-act="login-mode" data-v="enter"`, !create)}${chip("새로 만들기", `data-act="login-mode" data-v="create"`, create)}</div>
+    <form id="login-form" class="code-form">
+      <label for="login-name">기록장 이름</label>
+      <input id="login-name" name="name" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="20" placeholder="예: doil" required />
+      <label for="login-pin">비밀번호</label>
+      <input id="login-pin" name="pin" type="password" autocomplete="${create ? "new-password" : "current-password"}" minlength="4" maxlength="32" required />
+      ${create ? `<label for="login-pin2">비밀번호 확인</label><input id="login-pin2" name="pin2" type="password" autocomplete="new-password" maxlength="32" required />` : ""}
+      <button class="btn primary" type="submit">${create ? "만들고 시작하기" : "들어가기"}</button>
     </form>
-    <div class="divider"><span>처음이라면</span></div>
-    <button class="btn" type="button" data-act="gen-code">새 코드 만들기</button>
-    <p class="fine">영문 소문자·숫자·하이픈 6자 이상. 코드를 잊으면 기록을 찾을 수 없으니 꼭 따로 적어 두세요. 다른 사람이 알면 그 사람도 볼 수 있어요.</p>
+    <p class="fine">${create
+      ? "이름은 한글·영문 소문자·숫자 2~20자, 비밀번호는 4자 이상. 기록장과 핸드는 누구나 볼 수 있고, 기록·수정·삭제는 비밀번호를 아는 사람만 할 수 있어요. 이 기기는 비밀번호를 기억해요."
+      : "다른 사람 기록은 로그인 없이 기록장 목록에서 바로 볼 수 있어요."}</p>
   </section>`;
+}
+
+async function login(form) {
+  const create = loginMode === "create";
+  const name = form.name.value.normalize("NFC").trim().toLowerCase();
+  const pin = form.pin.value;
+  if (!NAME_RE.test(name)) { toast("이름은 한글·영문 소문자·숫자·-·_ 로 2~20자예요"); return; }
+  if (pin.length < 4) { toast("비밀번호는 4자 이상이에요"); return; }
+  if (create && pin !== form.pin2.value) { toast("비밀번호 확인이 달라요"); return; }
+  if (me && me.name !== name && Object.keys(outbox).length &&
+      !confirm("지금 기록장에 아직 못 올린 핸드가 있어요. 다른 기록장으로 바꾸면 그 핸드는 사라져요. 계속할까요?")) return;
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    if (create) await api("POST", "/books", { name, pin });
+    else await api("POST", `/books/${enc(name)}/login`, null, pin);
+  } catch (error) {
+    button.disabled = false;
+    toast(error.status === 404 ? "없는 기록장이에요. '새로 만들기'로 만들어 주세요" : error.status ? error.message : "연결이 안 돼요. 잠시 뒤 다시 해 주세요");
+    return;
+  }
+  if (!isMine(name)) { outbox = {}; draft = null; drop(KEY.draft); }
+  me = { name, pin };
+  store(KEY.me, me);
+  persist();
+  books = null;
+  toast(create ? "기록장을 만들었어요" : "들어왔어요");
+  location.hash = bookHash(name);
 }
 
 /* --- form --- */
@@ -297,7 +411,7 @@ function renderForm() {
   const stackBB = bbOf(num(h.hero.stack), h);
   const html = `
   <form id="hand-form" class="form" autocomplete="off" novalidate>
-    ${editing ? `<div class="edit-banner">핸드 수정 중 <a href="#/hand/${esc(editing)}">취소</a></div>` : ""}
+    ${editing ? `<div class="edit-banner">핸드 수정 중 <a href="${handHash(me.name, editing)}">취소</a></div>` : `<div class="form-owner"><span class="muted">기록장</span> <b>${esc(me.name)}</b></div>`}
     <section class="panel">
       <h2>테이블</h2>
       <div class="row2">
@@ -535,21 +649,33 @@ function renderSheet() {
 }
 
 /* --- list + stats --- */
-function filtered() {
+function filtered(all) {
   const now = today();
   const days = { "7": 7, "30": 30 }[filters.period];
   const since = days ? new Date(Date.parse(now) - (days - 1) * 864e5).toISOString().slice(0, 10) : null;
-  return visibleHands().filter((h) =>
+  return all.filter((h) =>
     (filters.period !== "today" || h.played_at === now) && (!since || h.played_at >= since) &&
     (!filters.session || h.session === filters.session) && (!filters.pos || h.hero.pos === filters.pos) &&
     (!filters.tag || (h.tags || []).includes(filters.tag)) &&
     (!filters.result || (filters.result === "win" ? (h.result ?? 0) > 0 : (h.result ?? 0) < 0)));
 }
 
-function listView() {
-  const all = visibleHands();
-  if (!all.length) return `<section class="panel empty-state"><h2>아직 기록이 없어요</h2><p class="muted">한 판 끝날 때마다 기록하기 탭에서 넣어 두면 여기서 모아 볼 수 있어요.</p><a class="btn primary" href="#/new">첫 핸드 기록하기</a></section>`;
-  const rows = filtered();
+function bookView(name) {
+  const mine = isMine(name);
+  const head = `<div class="book-head"><a class="link" href="#/">목록</a><h2>${esc(name)}</h2>${mine ? `<span class="tag">내 기록장</span>` : ""}</div>`;
+  if (bookMeta[name] === null && !mine) return head + `<section class="panel empty-state"><h2>없는 기록장이에요</h2><a class="btn" href="#/">기록장 목록</a></section>`;
+  if (cache[name] === undefined && !mine) return head + `<p class="muted center">${lastError ? esc(lastError) : "불러오는 중"}</p>`;
+  return head + listView(name);
+}
+
+function listView(name) {
+  const all = handsOf(name);
+  if (!all.length) {
+    return isMine(name)
+      ? `<section class="panel empty-state"><h2>아직 기록이 없어요</h2><p class="muted">한 판 끝날 때마다 기록하기 탭에서 넣어 두면 여기서 모아 볼 수 있어요.</p><a class="btn primary" href="#/new">첫 핸드 기록하기</a></section>`
+      : `<section class="panel empty-state"><h2>아직 기록이 없어요</h2></section>`;
+  }
+  const rows = filtered(all);
   const sessions = [...new Set(all.map((h) => h.session).filter(Boolean))];
   const tags = [...new Set(all.flatMap((h) => h.tags || []))];
   const posList = ["UTG", "UTG+1", "UTG+2", "LJ", "HJ", "CO", "BTN", "SB", "BB"].filter((p) => all.some((h) => h.hero.pos === p));
@@ -582,14 +708,15 @@ function listView() {
     </div>
     ${byPos.length > 1 ? `<div class="pos-bars">${byPos.map((x) => `<div class="pb"><span class="pb-pos">${x.p}</span><span class="pb-track"><span class="pb-fill ${x.bb < 0 ? "neg" : "pos"}" style="width:${(Math.abs(x.bb) / maxAbs) * 50}%;${x.bb < 0 ? "right:50%" : "left:50%"}"></span></span><span class="pb-val">${signed(x.bb)}bb <em>${x.n}</em></span></div>`).join("")}</div>` : ""}
   </section>
-  <ul class="hand-list">${rows.map(handCard).join("") || `<li class="muted center">조건에 맞는 핸드가 없어요.</li>`}</ul>`;
+  <ul class="hand-list">${rows.map((h) => handCard(h, name)).join("") || `<li class="muted center">조건에 맞는 핸드가 없어요.</li>`}</ul>`;
 }
 
-function handCard(h) {
+function handCard(h, name) {
   const r = h.result;
   const b = bbOf(r, h);
-  const pending = outbox[h.id] ? `<span class="pending">${outbox[h.id].error ? "저장 실패" : "대기"}</span>` : "";
-  return `<li><a class="hcard" href="#/hand/${esc(h.id)}">
+  const job = isMine(name) ? outbox[h.id] : null;
+  const pending = job ? `<span class="pending">${job.error ? "저장 실패" : "대기"}</span>` : "";
+  return `<li><a class="hcard" href="${handHash(name, h.id)}">
     <div class="hc-main">
       <span class="pos-badge me">${esc(h.hero.pos)}</span>
       <span class="hc-cards">${cardsText(h.hero.cards) || `<span class="muted">패 없음</span>`}</span>
@@ -601,14 +728,18 @@ function handCard(h) {
 }
 
 /* --- detail + replay --- */
-function detailView(id) {
-  const h = visibleHands().find((x) => x.id === id);
-  if (!h) return `<section class="panel"><p>핸드를 찾을 수 없어요.</p><a class="btn" href="#/list">목록으로</a></section>`;
+function detailView(name, id) {
+  const mine = isMine(name);
+  const h = handsOf(name).find((x) => x.id === id);
+  if (!h) {
+    const loading = cache[name] === undefined && bookMeta[name] !== null;
+    return `<section class="panel"><p>${loading ? "불러오는 중" : "핸드를 찾을 수 없어요."}</p><a class="btn" href="${bookHash(name)}">목록으로</a></section>`;
+  }
   const r = h.result;
   const hasActions = STREETS.some(([k]) => (h.actions[k] || []).length);
-  const job = outbox[h.id];
+  const job = mine ? outbox[h.id] : null;
   return `
-  <div class="detail-top"><a class="link" href="#/list">목록</a><span class="muted">${esc(h.played_at)}</span></div>
+  <div class="detail-top"><a class="link" href="${bookHash(name)}">${esc(name)} 목록</a><span class="muted">${esc(h.played_at)}</span></div>
   ${job?.error ? `<p class="error-box">서버가 이 핸드를 받지 않았어요: ${esc(job.error)} 수정해서 다시 저장해 주세요.</p>` : ""}
   <section class="panel">
     <div class="d-head">
@@ -622,15 +753,15 @@ function detailView(id) {
     ${(h.tags || []).length ? `<div class="d-tags">${h.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join("")}</div>` : ""}
     ${h.note ? `<p class="d-note">${esc(h.note)}</p>` : ""}
   </section>
-  ${hasActions ? replayPanel(h) : `<p class="muted center">액션을 넣지 않은 핸드예요. 수정에서 액션을 넣으면 재생할 수 있어요.</p>`}
-  <div class="detail-actions">
+  ${hasActions ? replayPanel(h, name) : `<p class="muted center">액션을 넣지 않은 핸드예요.${mine ? " 수정에서 액션을 넣으면 재생할 수 있어요." : ""}</p>`}
+  ${mine ? `<div class="detail-actions">
     <button type="button" class="btn primary wide-row" data-act="same-table" data-v="${esc(h.id)}">같은 테이블로 새 핸드</button>
-    <a class="btn" href="#/edit/${esc(h.id)}">수정</a>
+    <a class="btn" href="#/edit/${enc(h.id)}">수정</a>
     <button type="button" class="btn danger" data-act="delete" data-v="${esc(h.id)}">삭제</button>
-  </div>`;
+  </div>` : ""}`;
 }
 
-function replayPanel(h) {
+function replayPanel(h, name) {
   const { frames } = simulate(h, "river");
   frames.push({ ...frames[frames.length - 1], caption: h.result == null ? "끝" : `결과 ${signed(bbOf(h.result, h))}bb`, actor: null, end: true });
   replayIndex = Math.min(replayIndex, frames.length - 1);
@@ -646,7 +777,7 @@ function replayPanel(h) {
       <span class="rp-stack">${Number.isFinite(s.left) ? fmt(s.left) : "?"}</span>
     </li>`;
   }).join("");
-  return `<section class="panel replay" data-hand="${esc(h.id)}">
+  return `<section class="panel replay" data-hand="${esc(h.id)}" data-book="${esc(name)}">
     <h2>재생</h2>
     <div class="rp-board">${h.board.map((c, i) => (i < f.board ? cardHTML(c) : `<span class="pc back"></span>`)).join("")}</div>
     <div class="rp-pot">팟 <b>${fmt(f.pot)}</b> <em>${fmt(f.pot / h.bb)}bb</em> · ${STREET_NAME[f.street]}</div>
@@ -692,7 +823,7 @@ document.addEventListener("input", (e) => {
 
 document.addEventListener("change", (e) => {
   const t = e.target;
-  if (t.dataset.filter) { filters[t.dataset.filter] = t.value; $("#view").innerHTML = listView(); }
+  if (t.dataset.filter && viewing) { filters[t.dataset.filter] = t.value; $("#view").innerHTML = bookView(viewing); }
 });
 
 function renderActions() {
@@ -711,41 +842,23 @@ document.addEventListener("keydown", (e) => {
 
 document.addEventListener("submit", (e) => {
   e.preventDefault();
-  if (e.target.id === "code-form") {
-    const value = e.target.code.value.trim().toLowerCase();
-    if (!/^[a-z0-9-]{6,64}$/.test(value)) { toast("영문 소문자·숫자·하이픈으로 6자 이상 넣어 주세요"); return; }
-    setCode(value);
-  }
+  if (e.target.id === "login-form") login(e.target);
   if (e.target.id === "hand-form") saveHand();
 });
 
 $("#sheet-backdrop").addEventListener("click", () => { const wasPicker = !!picker; closeSheet(); if (wasPicker && $("#hand-form")) renderForm(); });
-$("#code-btn").addEventListener("click", () => openCodeSheet());
+$("#me-btn").addEventListener("click", () => { if (me) openMeSheet(); else location.hash = "#/login"; });
 
-function setCode(value) {
-  code = value;
-  store(KEY.code, code);
-  if (location.hash !== "#/list") location.hash = "#/list"; else route();
-  sync();
-}
-
-function genCode() {
-  const words = ["ace", "king", "river", "turn", "flop", "nuts", "suit", "chip", "deck", "pair", "set", "wheel"];
-  const pick = () => words[crypto.getRandomValues(new Uint32Array(1))[0] % words.length];
-  const tail = Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
-  return `${pick()}-${pick()}-${tail}`;
-}
-
-function openCodeSheet(generated) {
+function openMeSheet() {
   picker = null;
   $("#sheet").innerHTML = `
     <div class="sheet-grip" aria-hidden="true"></div>
-    <div class="sheet-head"><h2 id="sheet-title">${generated ? "새 기록 코드" : "내 기록 코드"}</h2><button type="button" class="link" data-act="close-sheet">닫기</button></div>
-    <p class="code-show">${esc(generated || code)}</p>
-    <p class="fine">${generated ? "이 코드를 지금 따로 적어 두세요. 잊으면 기록을 찾을 수 없어요." : "다른 기기에서 이 코드를 넣으면 같은 기록이 보여요."}</p>
+    <div class="sheet-head"><h2 id="sheet-title">내 기록장</h2><button type="button" class="link" data-act="close-sheet">닫기</button></div>
+    <p class="code-show">${esc(me.name)}</p>
+    <p class="fine">다른 폰이나 PC에서는 이 이름과 비밀번호로 '들어가기' 하면 이어서 기록할 수 있어요.</p>
     <div class="sheet-foot two">
-      <button type="button" class="btn" data-act="copy-code" data-v="${esc(generated || code)}">복사</button>
-      ${generated ? `<button type="button" class="btn primary" data-act="use-code" data-v="${esc(generated)}">이 코드로 시작</button>` : `<button type="button" class="btn danger" data-act="logout">이 기기에서 코드 지우기</button>`}
+      <a class="btn" href="${bookHash(me.name)}" data-act="close-sheet">내 기록 보기</a>
+      <button type="button" class="btn danger" data-act="logout">이 기기에서 로그아웃</button>
     </div>`;
   $("#sheet").hidden = false;
   $("#sheet-backdrop").hidden = false;
@@ -774,9 +887,11 @@ function confirmBet() {
 function rerenderDetail() {
   const panel = $(".replay");
   if (!panel) return;
-  const h = visibleHands().find((x) => x.id === panel.dataset.hand);
+  const name = panel.dataset.book;
+  const h = handsOf(name).find((x) => x.id === panel.dataset.hand);
+  if (!h) return;
   const fresh = document.createElement("div");
-  fresh.innerHTML = replayPanel(h);
+  fresh.innerHTML = replayPanel(h, name);
   panel.replaceWith(fresh.firstElementChild);
 }
 
@@ -797,9 +912,8 @@ function saveHand() {
   if (!editing) drop(KEY.draft);
   editing = null; draft = null; ui = { sign: 1, actStreet: "pre", pending: null, amount: "" };
   replayIndex = 0;
-  location.hash = "#/hand/" + savedId;
+  location.hash = handHash(me.name, savedId);
   toast("저장했어요");
-  sync();
 }
 
 document.addEventListener("click", (e) => {
@@ -807,12 +921,11 @@ document.addEventListener("click", (e) => {
   if (!b || b.disabled || b.tagName === "INPUT") return;
   const act = b.dataset.act, v = b.dataset.v;
   switch (act) {
-    case "gen-code": openCodeSheet(genCode()); break;
-    case "use-code": closeSheet(); setCode(v); break;
-    case "copy-code": navigator.clipboard?.writeText(v).then(() => toast("복사했어요"), () => toast("복사가 안 돼요. 직접 적어 두세요")); break;
+    case "login-mode": loginMode = v; renderView(); break;
     case "logout":
-      if (Object.keys(outbox).length && !confirm("아직 서버에 못 올린 핸드가 있어요. 지우면 그 핸드는 사라져요. 계속할까요?")) break;
-      code = ""; hands = []; outbox = {}; drop(KEY.code); drop(KEY.cache); drop(KEY.outbox); closeSheet(); route(); renderSync(); break;
+      if (Object.keys(outbox).length && !confirm("아직 서버에 못 올린 핸드가 있어요. 로그아웃하면 그 핸드는 사라져요. 계속할까요?")) break;
+      me = null; outbox = {}; draft = null; editing = null; drop(KEY.me); drop(KEY.draft); persist(); closeSheet(); lastError = "";
+      renderSync(); if (location.hash === "#/" || !location.hash) renderView(); else location.hash = "#/"; break;
     case "close-sheet": { const wasPicker = !!picker; closeSheet(); if (wasPicker && $("#hand-form")) renderForm(); break; }
     case "size": draft.table_size = +v; draft.hero.pos = POS[+v].includes(draft.hero.pos) ? draft.hero.pos : ""; draft.villains = draft.villains.filter((x) => !x.pos || POS[+v].includes(x.pos)).slice(0, +v - 1); saveDraft(); renderForm(); break;
     case "hero-pos": draft.hero.pos = draft.hero.pos === v ? "" : v; saveDraft(); renderForm(); break;
@@ -850,7 +963,7 @@ document.addEventListener("click", (e) => {
     case "tag": draft.tags = draft.tags.includes(v) ? draft.tags.filter((t) => t !== v) : [...draft.tags, v].slice(0, 12); saveDraft(); renderForm(); break;
     case "add-tag": addTag(); break;
     case "reset": if (confirm("지금 쓰던 내용을 지우고 새로 쓸까요?")) { draft = newDraft(); ui = { sign: 1, actStreet: "pre", pending: null, amount: "" }; saveDraft(); renderForm(); window.scrollTo(0, 0); } break;
-    case "cancel-edit": { const id = editing; editing = null; draft = null; location.hash = "#/hand/" + id; break; }
+    case "cancel-edit": { const id = editing; editing = null; draft = null; location.hash = handHash(me.name, id); break; }
     case "same-table": {
       const src = visibleHands().find((x) => x.id === v);
       draft = newDraft();
@@ -861,14 +974,14 @@ document.addEventListener("click", (e) => {
     }
     case "delete":
       if (!confirm("이 핸드를 삭제할까요?")) break;
-      if (outbox[v] && !hands.some((x) => x.id === v)) delete outbox[v];
+      if (outbox[v] && !(cache[me.name] || []).some((x) => x.id === v)) delete outbox[v];
       else outbox[v] = { op: "delete" };
-      persist(); location.hash = "#/list"; sync(); break;
+      persist(); location.hash = bookHash(me.name); break;
     case "rp": replayIndex = +v; rerenderDetail(); break;
   }
 });
 
-window.addEventListener("hashchange", () => { replayIndex = 0; route(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => { replayIndex = 0; route(); window.scrollTo(0, 0); sync(); });
 window.addEventListener("online", sync);
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") sync(); });
 

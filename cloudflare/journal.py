@@ -1,15 +1,20 @@
 """Hand journal API: validation and D1 storage for hands recorded by hand from live play.
 
-A personal code (sent as X-Journal-Code) identifies the journal; only its salted SHA-256 is stored.
-This module has no Workers imports so tests run it against sqlite.
+Journals are named books (e.g. "doil") that anyone can read. Writing to a book needs its password,
+sent as X-Journal-Pin; only a salted, stretched hash of it is stored, and repeated misses lock the
+book for a while. This module has no Workers imports so tests run it against sqlite.
 """
 import hashlib
+import hmac
 import json
 import math
 import re
-from datetime import datetime, timezone
+import secrets
+import unicodedata
+from datetime import datetime, timedelta, timezone
+from urllib.parse import unquote
 
-CODE_RE = re.compile(r"^[a-z0-9-]{6,64}$")
+NAME_RE = re.compile(r"^[0-9a-z가-힣_-]{2,20}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,40}$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 CARD_RE = re.compile(r"^[2-9TJQKA][shdc]$")
@@ -28,17 +33,38 @@ STREETS = ("pre", "flop", "turn", "river")
 MAX_BODY = 32_000
 MAX_HANDS = 5000
 MAX_AMOUNT = 1e9
+MAX_BOOKS = 2000
+PIN_MIN, PIN_MAX = 4, 32
+LOCK_AFTER = 8          # wrong passwords in a row before the book locks
+LOCK_MINUTES = 10
+STRETCH = 2000
 
 
-class AuthError(Exception):
-    pass
+class ApiError(Exception):
+    def __init__(self, status, message):
+        super().__init__(message)
+        self.status = status
 
 
-def owner_key(code):
-    code = (code or "").strip().lower()
-    if not CODE_RE.match(code):
-        raise AuthError("기록 코드가 필요합니다 (영문 소문자·숫자·- 6~64자)")
-    return hashlib.sha256(("holdem-journal:v1:" + code).encode()).hexdigest()
+def book_name(raw):
+    """Normalize a book name from a URL segment or a form field; raises ApiError(400)."""
+    name = unicodedata.normalize("NFC", unquote(raw or "")).strip().lower()
+    if not NAME_RE.match(name):
+        raise ApiError(400, "기록장 이름은 한글·영문 소문자·숫자·-·_ 로 2~20자입니다")
+    return name
+
+
+def check_pin_format(pin):
+    if not isinstance(pin, str) or not PIN_MIN <= len(pin) <= PIN_MAX or any(ord(c) < 32 for c in pin):
+        raise ApiError(400, f"비밀번호는 {PIN_MIN}~{PIN_MAX}자입니다")
+    return pin
+
+
+def pin_hash(pin, salt):
+    digest = (salt + ":" + pin).encode()
+    for _ in range(STRETCH):
+        digest = hashlib.sha256(digest + salt.encode()).digest()
+    return digest.hex()
 
 
 def _number(value, name, low, high, optional=False):
@@ -167,8 +193,8 @@ def validate_hand(data, hand_id):
     return hand
 
 
-def now_iso():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+def now_iso(offset_minutes=0):
+    return (datetime.now(timezone.utc) + timedelta(minutes=offset_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _python(value):
@@ -181,6 +207,50 @@ class JournalRepository:
 
     async def _rows(self, sql, *parameters):
         return _python(await self.database.prepare(sql).bind(*parameters).all())["results"]
+
+    async def _run(self, sql, *parameters):
+        await self.database.prepare(sql).bind(*parameters).run()
+
+    BOOK_SQL = ("SELECT b.name AS name, b.created_at AS created_at, count(h.hand_id) AS hands, "
+                "max(h.played_at) AS last_played, coalesce(max(h.updated_at), b.created_at) AS updated_at "
+                "FROM journal_books b LEFT JOIN journal_hands h ON h.owner = b.name ")
+
+    async def books(self):
+        return await self._rows(self.BOOK_SQL + "GROUP BY b.name ORDER BY updated_at DESC LIMIT 500")
+
+    async def book(self, name):
+        rows = await self._rows(self.BOOK_SQL + "WHERE b.name=? GROUP BY b.name", name)
+        return rows[0] if rows else None
+
+    async def create_book(self, name, pin):
+        if await self._rows("SELECT 1 AS x FROM journal_books WHERE name=?", name):
+            raise ApiError(409, "이미 있는 기록장 이름입니다. 내 기록장이면 '들어가기'로 비밀번호를 넣어 주세요")
+        count = (await self._rows("SELECT count(*) AS n FROM journal_books"))[0]["n"]
+        if count >= MAX_BOOKS:
+            raise ApiError(400, "기록장을 더 만들 수 없습니다")
+        salt = secrets.token_hex(16)
+        await self._run("INSERT INTO journal_books(name,pin_salt,pin_hash,created_at) VALUES(?,?,?,?)",
+                        name, salt, pin_hash(pin, salt), now_iso())
+        return await self.book(name)
+
+    async def check_pin(self, name, pin):
+        """Raise ApiError unless pin opens the book; counts misses and locks after LOCK_AFTER of them."""
+        rows = await self._rows("SELECT pin_salt, pin_hash, fail_count, locked_until FROM journal_books WHERE name=?", name)
+        if not rows:
+            raise ApiError(404, "없는 기록장입니다")
+        row, now = rows[0], now_iso()
+        if row["locked_until"] and row["locked_until"] > now:
+            raise ApiError(423, f"비밀번호를 여러 번 틀려 {LOCK_MINUTES}분 동안 잠겼습니다")
+        if isinstance(pin, str) and hmac.compare_digest(pin_hash(pin, row["pin_salt"]), row["pin_hash"]):
+            if row["fail_count"]:
+                await self._run("UPDATE journal_books SET fail_count=0, locked_until=NULL WHERE name=?", name)
+            return
+        misses = row["fail_count"] + 1
+        if misses >= LOCK_AFTER:
+            await self._run("UPDATE journal_books SET fail_count=0, locked_until=? WHERE name=?", now_iso(LOCK_MINUTES), name)
+            raise ApiError(423, f"비밀번호를 여러 번 틀려 {LOCK_MINUTES}분 동안 잠겼습니다")
+        await self._run("UPDATE journal_books SET fail_count=? WHERE name=?", misses, name)
+        raise ApiError(401, "비밀번호가 맞지 않습니다")
 
     async def list(self, owner):
         rows = await self._rows("SELECT data FROM journal_hands WHERE owner=? "
@@ -207,30 +277,71 @@ class JournalRepository:
         await self.database.prepare("DELETE FROM journal_hands WHERE owner=? AND hand_id=?").bind(owner, hand_id).run()
 
 
-async def handle(method, path, code, body, database):
-    """Route one /journal/api request. Returns (status, json-able payload)."""
-    try:
-        owner = owner_key(code)
-    except AuthError as error:
-        return 401, {"error": str(error)}
-    repository = JournalRepository(database)
-    if path == "/journal/api/hands" and method == "GET":
-        return 200, {"hands": await repository.list(owner)}
-    prefix = "/journal/api/hands/"
-    if not path.startswith(prefix):
-        return 404, {"error": "Not found"}
-    hand_id = path[len(prefix):]
-    if not ID_RE.match(hand_id):
-        return 400, {"error": "핸드 ID가 잘못됐습니다"}
-    if method == "DELETE":
-        await repository.delete(owner, hand_id)
-        return 200, {"ok": True}
-    if method != "PUT":
-        return 405, {"error": "Method not allowed"}
+def _json_body(body):
     if len(body.encode()) > MAX_BODY:
-        return 413, {"error": "핸드가 너무 큽니다"}
+        raise ApiError(413, "요청이 너무 큽니다")
     try:
-        hand = validate_hand(json.loads(body), hand_id)
-        return 200, {"ok": True, "hand": await repository.save(owner, hand)}
-    except (ValueError, TypeError) as error:
-        return 400, {"error": str(error)}
+        return json.loads(body)
+    except ValueError:
+        raise ApiError(400, "요청 형식이 잘못됐습니다") from None
+
+
+async def handle(method, path, pin, body, database):
+    """Route one /journal/api request. Returns (status, json-able payload).
+
+    GET  /journal/api/books                        every book with hand counts (public)
+    POST /journal/api/books           {name, pin}  create a book
+    GET  /journal/api/books/<name>/hands           one book's hands (public)
+    POST /journal/api/books/<name>/login           check X-Journal-Pin
+    PUT|DELETE /journal/api/books/<name>/hands/<id> write, needs X-Journal-Pin
+    """
+    repository = JournalRepository(database)
+    pin = unquote(pin) if isinstance(pin, str) else None   # the page percent-encodes it so any text fits a header
+    parts = path[len("/journal/api/"):].strip("/").split("/")
+    try:
+        if parts[0] != "books":
+            raise ApiError(404, "Not found")
+        if len(parts) == 1:
+            if method == "GET":
+                return 200, {"books": await repository.books()}
+            if method != "POST":
+                raise ApiError(405, "Method not allowed")
+            data = _json_body(body)
+            if not isinstance(data, dict):
+                raise ApiError(400, "요청 형식이 잘못됐습니다")
+            name = book_name(data.get("name"))
+            book = await repository.create_book(name, check_pin_format(data.get("pin")))
+            return 201, {"ok": True, "book": book}
+        name, rest = book_name(parts[1]), parts[2:]
+        if rest == ["hands"] and method == "GET":
+            book = await repository.book(name)
+            if not book:
+                raise ApiError(404, "없는 기록장입니다")
+            return 200, {"book": book, "hands": await repository.list(name)}
+        if rest == ["login"]:
+            if method != "POST":
+                raise ApiError(405, "Method not allowed")
+            await repository.check_pin(name, pin)
+            return 200, {"ok": True, "book": await repository.book(name)}
+        if len(rest) != 2 or rest[0] != "hands":
+            raise ApiError(404, "Not found")
+        hand_id = rest[1]
+        if not ID_RE.match(hand_id):
+            raise ApiError(400, "핸드 ID가 잘못됐습니다")
+        if method not in ("PUT", "DELETE"):
+            raise ApiError(405, "Method not allowed")
+        data = _json_body(body) if method == "PUT" else None
+        await repository.check_pin(name, pin)
+        if method == "DELETE":
+            await repository.delete(name, hand_id)
+            return 200, {"ok": True}
+        try:
+            hand = validate_hand(data, hand_id)
+        except (ValueError, TypeError) as error:
+            raise ApiError(400, str(error)) from None
+        try:
+            return 200, {"ok": True, "hand": await repository.save(name, hand)}
+        except ValueError as error:
+            raise ApiError(400, str(error)) from None
+    except ApiError as error:
+        return error.status, {"error": str(error)}

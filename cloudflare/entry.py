@@ -36,8 +36,8 @@ class Default(WorkerEntrypoint):
         parsed = urlparse(request.url)
         path = parsed.path
         if path.startswith("/journal/api/"):
-            body = await request.text() if request.method == "PUT" else ""
-            status, payload = await journal.handle(request.method, path, request.headers.get("X-Journal-Code"),
+            body = await request.text() if request.method in ("PUT", "POST") else ""
+            status, payload = await journal.handle(request.method, path, request.headers.get("X-Journal-Pin"),
                                                    body, self.env.DB)
             return json_response(payload, status)
         if request.method != "GET":
